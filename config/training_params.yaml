@@ -1,0 +1,16 @@
+# CLI arguments
+task: Isaac-Velocity-Flat-Unitree-Go1-v0
+headless: true
+num_envs: 5
+seed: 2024
+
+# env:
+#   actions:
+#     joint_effort:
+#       scale: 10.0
+#   scene:
+#     num_envs: 512
+
+# agent:
+#   trainer:
+#     timesteps: 100000
