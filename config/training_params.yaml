@@ -1,9 +1,27 @@
-# CLI arguments
-task: Isaac-Velocity-Flat-Unitree-Go1-v0
-headless: true
-num_envs: 5
-seed: 2024
+# --- Task config
+task: Isaac-Velocity-Rough-Unitree-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
+num_envs: 2048  # Number of environments to simulate.
+seed: 42  # Seed used for the environment
+# max_iterations: MAX_ITERATIONS  # RL Policy training iterations.
 
+video: false  # Record videos during training.
+video_length: 10  # Length of the recorded video (in steps).
+video_interval: 10  # Interval between video recordings (in steps).
+
+# --- App Launcher config
+headless: true
+# enable_cameras: false
+
+# --- rsl_rl config
+# experiment_name: EXPERIMENT_NAME  # Name of the experiment folder where logs will be stored.
+# run_name: RUN_NAME   # Run name suffix to the log directory.
+# resume: true  # Whether to resume from a checkpoint.
+# load_run: LOAD_RUN   # Name of the run folder to resume from.
+# checkpoint: CHECKPOINT  # Checkpoint file to resume from.
+# logger: LOGGER  #   Logger module to use. {neptune,wandb,tensorboard} 
+# log_project_name: LOG_PROJECT_NAME  # Name of the logging project when using wandb or neptune.
+
+# --- Environment config
 # env:
 #   actions:
 #     joint_effort:

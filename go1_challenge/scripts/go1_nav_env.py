@@ -38,6 +38,7 @@ simulation_app = app_launcher.app
 import numpy as np
 import torch
 import yaml
+import gymnasium as gym
 
 import isaacsim.core.utils.prims as prim_utils
 
@@ -60,6 +61,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, check_file_path, read_file
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaacsim.core.utils.viewports import set_camera_view
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
 
 from pxr import UsdGeom, Gf, UsdPhysics
 
@@ -68,7 +70,12 @@ from pxr import UsdGeom, Gf, UsdPhysics
 ##
 from isaaclab_assets.robots.unitree import UNITREE_GO1_CFG  # isort:skip
 
+from isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg import UnitreeGo1RoughEnvCfg
+
+
 PKG_PATH = Path(__file__).parent.parent.parent.parent
+
+GYM_TASK = "Isaac-Velocity-Flat-Unitree-Go1-v0"
 
 ##
 # Custom observation terms
@@ -170,6 +177,7 @@ class Go1NavSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot",
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(1.5, 1.5, 0.4),  # x, y, z position (starting in top-right area)
+            rot=(0.0, 0.0, 0.0, 1.0),  # quaternion rotation (no rotation)
             joint_pos={
                 ".*L_hip_joint": 0.1,
                 ".*R_hip_joint": -0.1,
@@ -193,6 +201,17 @@ class Go1NavSceneCfg(InteractiveSceneCfg):
         ),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 0.25)),
     )
+
+    # --- sensors
+    height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/trunk",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
 
     # # camera
     # camera = CameraCfg(
@@ -270,6 +289,41 @@ class ObservationsCfg:
 
 
 @configclass
+class FullObservationsCfg:
+    """Observation specifications for the MDP."""
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        """Observations for policy group."""
+
+        # observation terms (order preserved)
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        projected_gravity = ObsTerm(
+            func=mdp.projected_gravity,
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        # velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
+        velocity_commands = ObsTerm(func=constant_commands)
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
+        actions = ObsTerm(func=mdp.last_action)
+        height_scan = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+            clip=(-1.0, 1.0),
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    # observation groups
+    policy: PolicyCfg = PolicyCfg()
+
+
+@configclass
 class EventCfg:
     """Configuration for events."""
 
@@ -284,12 +338,18 @@ class QuadrupedEnvCfg(ManagerBasedEnvCfg):
     scene: Go1NavSceneCfg = Go1NavSceneCfg(num_envs=1, env_spacing=2.5)
 
     # Basic settings
-    observations: ObservationsCfg = ObservationsCfg()
+    # observations: ObservationsCfg = ObservationsCfg()
+    observations: FullObservationsCfg = FullObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     events: EventCfg = EventCfg()
 
     def __post_init__(self):
         """Post initialization."""
+        # post init of parent
+        # super().__post_init__()
+
+        # self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
+
         # general settings
         self.decimation = 4  # env decimation -> 50 Hz control
         # simulation settings
@@ -304,30 +364,130 @@ class QuadrupedEnvCfg(ManagerBasedEnvCfg):
         # if self.scene.height_scanner is not None:
         #     self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
 
+        if self.scene.height_scanner is not None:
+            self.scene.height_scanner.update_period = self.decimation * self.sim.dt
+        if self.scene.contact_forces is not None:
+            self.scene.contact_forces.update_period = self.sim.dt
 
-def load_policy(policy_path=None):
-    """Load the policy for the Go1 robot.
+
+def load_policy_skrl(policy_file=None):
+    """Load the policy for the Go1 robot using skrl agent. NOT WORKING
 
     Args:
-        policy_path (str, optional): Path to the policy file. Relative path to 'logs/skrl/unitree_go1_flat'
-
+        policy_file (str, optional): Path to the policy file. Relative path to 'logs/skrl/unitree_go1_flat'
     """
-    # load level policy
-    # policy_path = ISAACLAB_NUCLEUS_DIR + "/Policies/ANYmal-C/HeightScan/policy.pt"
+    import skrl
+    from packaging import version
+
+    # check for minimum supported skrl version
+    SKRL_VERSION = "1.4.2"
+    if version.parse(skrl.__version__) < version.parse(SKRL_VERSION):
+        skrl.logger.error(
+            f"Unsupported skrl version: {skrl.__version__}. "
+            f"Install supported version using 'pip install skrl>={SKRL_VERSION}'"
+        )
+        exit()
+
+    from skrl.utils.runner.torch import Runner
+    from isaaclab_tasks.utils import load_cfg_from_registry
+
     policy_dir = PKG_PATH / "logs" / "skrl" / "unitree_go1_flat"
-    policy_path = policy_dir / policy_path
+    policy_path = policy_dir / policy_file
 
     print(f"[INFO] Loading policy from {policy_path}")
 
     # check if policy file exists
     if not check_file_path(policy_path):
         raise FileNotFoundError(f"Policy file '{policy_path}' does not exist.")
-    file_bytes = read_file(policy_path)
 
+    # Load the experiment configuration (same as training)
+    try:
+        experiment_cfg = load_cfg_from_registry("Isaac-Velocity-Flat-Unitree-Go1-v0", "skrl_ppo_cfg_entry_point")
+    except ValueError:
+        experiment_cfg = load_cfg_from_registry("Isaac-Velocity-Flat-Unitree-Go1-v0", "skrl_cfg_entry_point")
+
+    # Create a dummy environment wrapper for the agent (we'll extract the policy later)
+    # We need this because skrl agents are tied to environments
+    class DummyEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.num_agents = 1
+            self.state_space = type("MockSpace", (), {"shape": (48,)})()  # Adjust based on your observation size
+            self.observation_space = self.state_space
+            self.action_space = type("MockSpace", (), {"shape": (12,)})()  # Adjust based on your action size
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    dummy_env = DummyEnv()
+
+    # env = gym.make(GYM_TASK, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+    # Configure the runner and agent
+    experiment_cfg["trainer"]["close_environment_at_exit"] = False
+    experiment_cfg["agent"]["experiment"]["write_interval"] = 0
+    experiment_cfg["agent"]["experiment"]["checkpoint_interval"] = 0
+
+    runner = Runner(dummy_env, experiment_cfg)
+
+    # Load the checkpoint
+    runner.agent.load(str(policy_path))
+    runner.agent.set_running_mode("eval")
+
+    # Return the agent's policy network
+    return runner.agent
+
+
+def load_policy_rsl(policy_file=None):
+    """Load the policy using rsl-rl format."""
+    policy_dir = PKG_PATH / "logs" / "rsl_rl"  # Adjust path as needed
+    policy_path = policy_dir / policy_file
+
+    print(f"[INFO] Loading policy from {policy_path}")
+
+    # # Load the policy directly (rsl-rl saves as pickle/torch)
+    # checkpoint = torch.load(policy_path, map_location="cpu")
+
+    # t = policy_path.parent / "exported" / "policy.pt"
+    file_bytes = read_file(policy_path)
     # jit load the policy
     policy = torch.jit.load(file_bytes)
 
     return policy
+    # # Extract actor network from checkpoint
+    # if "model_state_dict" in checkpoint:
+    #     policy_state_dict = checkpoint["model_state_dict"]
+    # elif "ac_parameters_1" in checkpoint:  # rsl-rl format
+    #     policy_state_dict = checkpoint["ac_parameters_1"]
+    # else:
+    #     policy_state_dict = checkpoint
+
+    # # Create a simple MLP policy network (adjust architecture as needed)
+    # class PolicyMLP(torch.nn.Module):
+    #     def __init__(self, input_size=48, output_size=12, hidden_dims=[512, 256, 128]):
+    #         super().__init__()
+    #         layers = []
+    #         prev_dim = input_size
+
+    #         for hidden_dim in hidden_dims:
+    #             layers.extend([torch.nn.Linear(prev_dim, hidden_dim), torch.nn.ELU()])
+    #             prev_dim = hidden_dim
+
+    #         layers.append(torch.nn.Linear(prev_dim, output_size))
+    #         self.network = torch.nn.Sequential(*layers)
+
+    #     def forward(self, x):
+    #         return self.network(x)
+
+    # policy = PolicyMLP()
+
+    # # Load state dict (may need filtering for actor-only weights)
+    # try:
+    #     policy.load_state_dict(policy_state_dict)
+    # except RuntimeError:
+    #     # Filter for actor weights only if full AC model is saved
+    #     actor_weights = {k.replace("actor.", ""): v for k, v in policy_state_dict.items() if "actor" in k}
+    #     policy.load_state_dict(actor_weights)
+
+    # return policy
 
 
 def create_aruco_map_yaml():
@@ -358,64 +518,6 @@ def create_aruco_map_yaml():
     print(f"Generated tag map: {yaml_path}")
 
 
-def run_simulator(env: ManagerBasedEnv):
-    """Runs the simulation loop."""
-    # Define simulation stepping
-    sim_dt = env.sim.get_physics_dt()
-    sim_time = 0.0
-    count = 0
-
-    set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
-
-    # Create output directory to save images
-    output_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "output")
-    os.makedirs(output_dir, exist_ok=True)
-
-    # policy
-    policy = load_policy("2025-07-15_12-48-05_ppo_torch/checkpoints/best_agent.pt")
-    policy = policy.to(env.device).eval()
-
-    # Simulate physics
-    obs, _ = env.reset()
-
-    while simulation_app.is_running():
-        with torch.inference_mode():
-            # Reset
-            if count % 1000 == 0:
-                obs, _ = env.reset()
-                count = 0
-                print("-" * 80)
-                print("[INFO]: Resetting environment...")
-
-            # # Apply default actions to the robot
-            # targets = scene["robot"].data.default_joint_pos
-            # scene["robot"].set_joint_position_target(targets)
-            # scene.write_data_to_sim()
-
-            # # perform step
-            # sim.step()
-            # # update sim-time
-            # sim_time += sim_dt
-            # count += 1
-            # # update buffers
-            # scene.update(sim_dt)
-
-            # infer action
-            action = policy(obs["policy"])
-
-            # # step env
-            obs, _ = env.step(action)
-
-            # update counter
-            count += 1
-
-            # # print camera information
-            # if count % 50 == 0:
-            #     print("-------------------------------")
-            #     # print(scene["camera"])
-            #     # print("Received shape of rgb image: ", scene["camera"].data.output["rgb"].shape)
-
-
 def main():
     """Main function."""
     # # Generate ArUco tag textures if they don't exist
@@ -433,43 +535,30 @@ def main():
     env_cfg = QuadrupedEnvCfg()
     env = ManagerBasedEnv(cfg=env_cfg)
 
-    # # Initialize the simulation context
-    # sim_cfg = sim_utils.SimulationCfg(dt=0.005, device=args_cli.device, use_fabric=not args_cli.disable_fabric)
-    # sim = sim_utils.SimulationContext(sim_cfg)
-
-    # # design scene
-    # design_scene()
-
-    # # create interactive scene
-    # scene_cfg = Go1NavSceneCfg(num_envs=1, env_spacing=2.0)
-    # scene = InteractiveScene(scene_cfg)
-
-    # # Play the simulator
-    # env.reset()
-    # # Now we are ready!
-    # print("[INFO]: Setup complete...")
-    # # Run the simulator
-    # run_simulator(env)
-
-    # simulate physics
-
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
 
+    policy = load_policy_rsl("unitree_go1_rough/2025-07-17_13-20-43/exported/policy.pt")  # Adjust filename
+    # policy = load_policy_rsl("unitree_go1_flat/2025-07-16_17-10-21/exported/policy.pt")
+    policy = policy.to(env.device).eval()
+
+    # Simulate physics
     count = 0
     obs, _ = env.reset()
     while simulation_app.is_running():
         with torch.inference_mode():
             # reset
-            if count % 1000 == 0:
+            if count % 100 == 0:
                 obs, _ = env.reset()
                 count = 0
                 print("-" * 80)
                 print("[INFO]: Resetting environment...")
-            # infer action
-            # action = policy(obs["policy"])
-            action = torch.zeros((env.num_envs, 12), device=env.device)
+
+            # infer action directly from policy network
+            action = policy(obs["policy"])
+
             # step env
             obs, _ = env.step(action)
+
             # update counter
             count += 1
 
@@ -478,6 +567,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # run the main function
+    main()
+    # close sim app
+    simulation_app.close()
     # run the main function
     main()
     # close sim app
