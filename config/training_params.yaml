@@ -1,5 +1,5 @@
 # --- Task config
-task: Isaac-Velocity-Rough-Unitree-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
+task: MRSS-Velocity-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
 num_envs: 2048  # Number of environments to simulate.
 seed: 42  # Seed used for the environment
 # max_iterations: MAX_ITERATIONS  # RL Policy training iterations.

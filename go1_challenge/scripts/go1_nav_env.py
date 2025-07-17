@@ -24,6 +24,7 @@ from isaaclab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Go1 navigation environment with ArUco tags.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric API and use USD instead.")
+
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -47,7 +48,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.assets import Articulation
 
-from isaaclab.envs import ManagerBasedEnv, ManagerBasedEnvCfg
+from isaaclab.envs import ManagerBasedEnv, ManagerBasedEnvCfg, ManagerBasedRLEnv
 import isaaclab.envs.mdp as mdp
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -71,305 +72,17 @@ from pxr import UsdGeom, Gf, UsdPhysics
 from isaaclab_assets.robots.unitree import UNITREE_GO1_CFG  # isort:skip
 
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg import UnitreeGo1RoughEnvCfg
+from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import Go1LocomotionEnvCfg_PLAY
+from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg
 
 
-PKG_PATH = Path(__file__).parent.parent.parent.parent
+PKG_PATH = Path(__file__).parent.parent.parent
 
 GYM_TASK = "Isaac-Velocity-Flat-Unitree-Go1-v0"
-
-##
-# Custom observation terms
-##
+DEVICE = "cpu"
 
 
-def constant_commands(env: ManagerBasedEnv) -> torch.Tensor:
-    """The generated command from the command generator."""
-    return torch.tensor([[1, 0, 0]], device=env.device).repeat(env.num_envs, 1)
-
-
-##
-# Helper functions for scene generation
-##
-
-
-def create_arena_walls(size=5.0, wall_height=0.4, wall_thickness=0.2):
-    """Create arena wall configurations"""
-    walls = {}
-
-    # Wall positions and sizes
-    wall_configs = [
-        ("wall_right", (2.5, 0.0, 0.2), (wall_thickness, size, wall_height)),
-        ("wall_left", (-2.5, 0.0, 0.2), (wall_thickness, size, wall_height)),
-        ("wall_front", (0.0, 2.5, 0.2), (size, wall_thickness, wall_height)),
-        ("wall_back", (0.0, -2.5, 0.2), (size, wall_thickness, wall_height)),
-    ]
-
-    for i, (name, pos, size_tuple) in enumerate(wall_configs):
-        walls[name] = AssetBaseCfg(
-            prim_path=f"/World/Wall_{i}",
-            spawn=sim_utils.CuboidCfg(
-                size=size_tuple,
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=1000.0),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=pos),
-        )
-
-    return walls
-
-
-def create_aruco_tag_configs(tag_size=0.15, post_height=0.3):
-    """Create ArUco tag and post configurations"""
-    # Tag positions on walls - positioned flat against walls
-    tag_positions = [
-        # Corner tags on walls
-        (2.4, 2.4, 0.3, 0, (0.0, 0.0, -0.707, 0.707)),  # ID 0: Top-right corner, facing inward
-        (-2.4, 2.4, 0.3, 1, (0.0, 0.0, 0.707, 0.707)),  # ID 1: Top-left corner, facing inward
-        (-2.4, -2.4, 0.3, 2, (0.0, 0.0, 1.0, 0.0)),  # ID 2: Bottom-left corner, facing inward
-        (2.4, -2.4, 0.3, 3, (0.0, 0.0, 0.0, 1.0)),  # ID 3: Bottom-right corner, facing inward
-        # Mid-wall tags
-        (0.0, 2.4, 0.3, 4, (0.0, 0.0, 1.0, 0.0)),  # ID 4: Top wall center, facing inward
-        (0.0, -2.4, 0.3, 5, (0.0, 0.0, 0.0, 1.0)),  # ID 5: Bottom wall center, facing inward
-    ]
-
-    configs = {}
-
-    for x, y, z, tag_id, rot in tag_positions:
-        # Get the texture path
-        texture_path = os.path.join(os.path.dirname(__file__), "textures", "aruco_tags", f"aruco_tag_{tag_id}.png")
-
-        # Create ArUco tag on wall (no posts needed)
-        configs[f"aruco_tag_{tag_id}"] = AssetBaseCfg(
-            prim_path=f"/World/ArUco_{tag_id}",
-            spawn=sim_utils.CuboidCfg(
-                size=(tag_size, tag_size, 0.001),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_texture=texture_path if os.path.exists(texture_path) else None,
-                    diffuse_color=(1.0, 1.0, 1.0),  # White background if no texture
-                    roughness=0.1,
-                    metallic=0.0,
-                ),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(x, y, z), rot=rot),
-        )
-
-    return configs
-
-
-@configclass
-class Go1NavSceneCfg(InteractiveSceneCfg):
-    """Design the scene with Go1 robot and camera."""
-
-    # ground plane
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg(size=(5.0, 5.0)))
-
-    # lights
-    light = AssetBaseCfg(
-        prim_path="/World/Light", spawn=sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
-    )
-
-    # robot
-    robot: ArticulationCfg = UNITREE_GO1_CFG.replace(
-        prim_path="{ENV_REGEX_NS}/Robot",
-        init_state=ArticulationCfg.InitialStateCfg(
-            pos=(1.5, 1.5, 0.4),  # x, y, z position (starting in top-right area)
-            rot=(0.0, 0.0, 0.0, 1.0),  # quaternion rotation (no rotation)
-            joint_pos={
-                ".*L_hip_joint": 0.1,
-                ".*R_hip_joint": -0.1,
-                "F[L,R]_thigh_joint": 0.8,
-                "R[L,R]_thigh_joint": 1.0,
-                ".*_calf_joint": -1.5,
-            },
-            joint_vel={".*": 0.0},
-        ),
-    )
-
-    # Central obstacle
-    obstacle = AssetBaseCfg(
-        prim_path="/World/Obstacle",
-        spawn=sim_utils.CylinderCfg(
-            radius=0.25,
-            height=0.5,
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-        ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 0.25)),
-    )
-
-    # --- sensors
-    height_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/trunk",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"],
-    )
-    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
-
-    # # camera
-    # camera = CameraCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base/front_cam",
-    #     update_period=0.1,
-    #     height=480,
-    #     width=640,
-    #     data_types=["rgb"],
-    #     spawn=sim_utils.PinholeCameraCfg(
-    #         focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
-    #     ),
-    #     offset=CameraCfg.OffsetCfg(pos=(0.3, 0.0, 0.1), rot=(0.0, 0.0, 0.0, 1.0), convention="world"),
-    # )
-
-    def __post_init__(self):
-        """Post initialization to add dynamically generated components."""
-        super().__post_init__()
-
-        # Add arena walls
-        wall_configs = create_arena_walls()
-        for name, config in wall_configs.items():
-            setattr(self, name, config)
-
-        # Add ArUco tags (no posts needed since they're on walls)
-        # tag_configs = create_aruco_tag_configs()
-        # for name, config in tag_configs.items():
-        #     setattr(self, name, config)
-
-
-##
-# MDP settings
-##
-
-
-@configclass
-class ActionsCfg:
-    """Action specifications for the MDP."""
-
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
-
-
-@configclass
-class ObservationsCfg:
-    """Observation specifications for the MDP."""
-
-    @configclass
-    class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
-
-        # observation terms (order preserved)
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        projected_gravity = ObsTerm(
-            func=mdp.projected_gravity,
-            noise=Unoise(n_min=-0.05, n_max=0.05),
-        )
-
-        velocity_commands = ObsTerm(func=constant_commands)
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        actions = ObsTerm(func=mdp.last_action)
-        # height_scan = ObsTerm(
-        #     func=mdp.height_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-        #     noise=Unoise(n_min=-0.1, n_max=0.1),
-        #     clip=(-1.0, 1.0),
-        # )
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_terms = True
-
-    # observation groups
-    policy: PolicyCfg = PolicyCfg()
-
-
-@configclass
-class FullObservationsCfg:
-    """Observation specifications for the MDP."""
-
-    @configclass
-    class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
-
-        # observation terms (order preserved)
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        projected_gravity = ObsTerm(
-            func=mdp.projected_gravity,
-            noise=Unoise(n_min=-0.05, n_max=0.05),
-        )
-        # velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-        velocity_commands = ObsTerm(func=constant_commands)
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        actions = ObsTerm(func=mdp.last_action)
-        height_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-            noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-1.0, 1.0),
-        )
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_terms = True
-
-    # observation groups
-    policy: PolicyCfg = PolicyCfg()
-
-
-@configclass
-class EventCfg:
-    """Configuration for events."""
-
-    reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
-
-
-@configclass
-class QuadrupedEnvCfg(ManagerBasedEnvCfg):
-    """Configuration for the locomotion velocity-tracking environment."""
-
-    # Scene settings
-    scene: Go1NavSceneCfg = Go1NavSceneCfg(num_envs=1, env_spacing=2.5)
-
-    # Basic settings
-    # observations: ObservationsCfg = ObservationsCfg()
-    observations: FullObservationsCfg = FullObservationsCfg()
-    actions: ActionsCfg = ActionsCfg()
-    events: EventCfg = EventCfg()
-
-    def __post_init__(self):
-        """Post initialization."""
-        # post init of parent
-        # super().__post_init__()
-
-        # self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
-
-        # general settings
-        self.decimation = 4  # env decimation -> 50 Hz control
-        # simulation settings
-        self.sim.dt = 0.005  # simulation timestep -> 200 Hz physics
-        # self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.device = args_cli.device
-
-        # self.sim.set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
-
-        # update sensor update periods
-        # we tick all the sensors based on the smallest update period (physics update period)
-        # if self.scene.height_scanner is not None:
-        #     self.scene.height_scanner.update_period = self.decimation * self.sim.dt  # 50 Hz
-
-        if self.scene.height_scanner is not None:
-            self.scene.height_scanner.update_period = self.decimation * self.sim.dt
-        if self.scene.contact_forces is not None:
-            self.scene.contact_forces.update_period = self.sim.dt
-
-
+# * OLD - To remove
 def load_policy_skrl(policy_file=None):
     """Load the policy for the Go1 robot using skrl agent. NOT WORKING
 
@@ -439,7 +152,10 @@ def load_policy_skrl(policy_file=None):
 def load_policy_rsl(policy_file=None):
     """Load the policy using rsl-rl format."""
     policy_dir = PKG_PATH / "logs" / "rsl_rl"  # Adjust path as needed
-    policy_path = policy_dir / policy_file
+    policy_path: Path = policy_dir / policy_file
+
+    if not policy_path.exists():
+        raise FileNotFoundError(f"Policy file '{policy_path}' does not exist.")
 
     print(f"[INFO] Loading policy from {policy_path}")
 
@@ -518,6 +234,32 @@ def create_aruco_map_yaml():
     print(f"Generated tag map: {yaml_path}")
 
 
+def load_gym_env() -> ManagerBasedRLEnv:
+    """Load the Gym environment."""
+    # #! RL Env
+    # env_cfg = Go1LocomotionEnvCfg_PLAY()
+    # env_cfg.scene.num_envs = 1
+    # env_cfg.curriculum = None
+    # # env_cfg.scene.terrain = TerrainImporterCfg(
+    # #     prim_path="/World/ground",
+    # #     terrain_type="usd",
+    # #     usd_path=f"{ISAAC_NUCLEUS_DIR}/Environments/Simple_Warehouse/warehouse.usd",
+    # # )
+    # env_cfg.sim.device = DEVICE  # args_cli.device
+    # if DEVICE == "cpu":
+    #     env_cfg.sim.use_fabric = False
+    # env = ManagerBasedRLEnv(cfg=env_cfg)
+
+    # #! Challenge Env
+    env_cfg = Go1ChallengeSceneCfg()
+    env_cfg.sim.device = DEVICE  # args_cli.device
+    if DEVICE == "cpu":
+        env_cfg.sim.use_fabric = False
+    env = ManagerBasedRLEnv(cfg=env_cfg)
+
+    return env
+
+
 def main():
     """Main function."""
     # # Generate ArUco tag textures if they don't exist
@@ -531,9 +273,8 @@ def main():
     # # Create ArUco map YAML file
     # create_aruco_map_yaml()
 
-    # setup base environment
-    env_cfg = QuadrupedEnvCfg()
-    env = ManagerBasedEnv(cfg=env_cfg)
+    # setup environment
+    env = load_gym_env()  # To load env used for training
 
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
 
@@ -557,7 +298,7 @@ def main():
             action = policy(obs["policy"])
 
             # step env
-            obs, _ = env.step(action)
+            obs, _, _, _, _ = env.step(action)
 
             # update counter
             count += 1

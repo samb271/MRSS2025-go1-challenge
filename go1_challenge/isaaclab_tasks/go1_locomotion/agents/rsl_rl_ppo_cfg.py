@@ -9,7 +9,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 
 @configclass
-class UnitreeGo1RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
+class Go1PPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 50
@@ -38,7 +38,7 @@ class UnitreeGo1RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 
 
 @configclass
-class UnitreeGo1FlatPPORunnerCfg(UnitreeGo1RoughPPORunnerCfg):
+class Go1FlatPPORunnerCfg(Go1PPORunnerCfg):
     def __post_init__(self):
         super().__post_init__()
 
