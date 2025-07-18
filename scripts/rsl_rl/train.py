@@ -50,16 +50,24 @@ if args_cli.config:
         if key in [
             "task",
             "headless",
+            "num_envs",
+            "seed",
             "video",
             "video_length",
             "video_interval",
-            "num_envs",
-            "seed",
+            "enable_cameras",
             "distributed",
             "checkpoint",
             "max_iterations",
             "ml_framework",
             "algorithm",
+            "experiment_name",
+            "run_name",
+            "resume",
+            "load_run",
+            "checkpoint",
+            "logger",
+            "log_project_name",
         ]:
             cli_params[key] = value
         else:

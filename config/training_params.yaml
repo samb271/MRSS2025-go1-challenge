@@ -18,8 +18,8 @@ headless: true
 # resume: true  # Whether to resume from a checkpoint.
 # load_run: LOAD_RUN   # Name of the run folder to resume from.
 # checkpoint: CHECKPOINT  # Checkpoint file to resume from.
-# logger: LOGGER  #   Logger module to use. {neptune,wandb,tensorboard} 
-# log_project_name: LOG_PROJECT_NAME  # Name of the logging project when using wandb or neptune.
+logger: wandb  #   Logger module to use. {neptune, wandb, tensorboard} 
+log_project_name: MRSS25  # Name of the logging project when using wandb or neptune.
 
 # --- Environment config
 # env:
