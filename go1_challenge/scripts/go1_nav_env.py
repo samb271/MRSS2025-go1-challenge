@@ -53,7 +53,7 @@ from isaacsim.core.utils.viewports import set_camera_view
 ##
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg import UnitreeGo1RoughEnvCfg
 from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import Go1LocomotionEnvCfg_PLAY
-from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg
+from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg, constant_commands
 
 
 PKG_PATH = Path(__file__).parent.parent.parent
@@ -121,27 +121,17 @@ def load_policy_rsl(policy_file=None):
 
 def load_gym_env() -> ManagerBasedRLEnv:
     """Load the Gym environment."""
-    # #! RL Env
-    # env_cfg = Go1LocomotionEnvCfg_PLAY()
-    # env_cfg.scene.num_envs = 1
-    # env_cfg.curriculum = None
-    # # env_cfg.scene.terrain = TerrainImporterCfg(
-    # #     prim_path="/World/ground",
-    # #     terrain_type="usd",
-    # #     usd_path=f"{ISAAC_NUCLEUS_DIR}/Environments/Simple_Warehouse/warehouse.usd",
-    # # )
-    # env_cfg.sim.device = DEVICE  # args_cli.device
-    # if DEVICE == "cpu":
-    #     env_cfg.sim.use_fabric = False
-    # env = ManagerBasedRLEnv(cfg=env_cfg)
-
-    # #! Challenge Env
     env_cfg = Go1ChallengeSceneCfg()
-    env_cfg.sim.device = DEVICE  # args_cli.device
+    env_cfg.sim.device = DEVICE
     if DEVICE == "cpu":
         env_cfg.sim.use_fabric = False
-    env = ManagerBasedRLEnv(cfg=env_cfg)
 
+    # Set constant commands for autonomous policy inference
+    from isaaclab.managers import ObservationTermCfg as ObsTerm
+
+    env_cfg.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
+
+    env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
 
 
@@ -152,7 +142,7 @@ def main():
 
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
 
-    policy = load_policy_rsl("unitree_go1_rough/2025-07-17_13-20-43/exported/policy.pt")  # Adjust filename
+    policy = load_policy_rsl("unitree_go1_rough/2025-07-17_18-39-56/exported/policy.pt")  # Adjust filename
     policy = policy.to(env.device).eval()
 
     # Simulate physics
@@ -187,5 +177,7 @@ if __name__ == "__main__":
     simulation_app.close()
     # run the main function
     main()
+    # close sim app
+    simulation_app.close()
     # close sim app
     simulation_app.close()

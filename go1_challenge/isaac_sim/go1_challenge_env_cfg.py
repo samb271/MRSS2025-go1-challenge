@@ -1,3 +1,4 @@
+from pathlib import Path
 import torch
 import os
 import numpy as np
@@ -15,6 +16,7 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
+from isaaclab.terrains import TerrainImporterCfg, TerrainGeneratorCfg
 
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, check_file_path, read_file
@@ -22,6 +24,8 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from isaaclab.sensors import CameraCfg
 from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+
+from isaaclab.devices import Se2Keyboard
 
 from pxr import UsdGeom, Gf, UsdPhysics
 
@@ -36,33 +40,6 @@ from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import G
 ##
 # Scene
 ##
-
-
-def create_arena_walls(size=5.0, wall_height=0.4, wall_thickness=0.2):
-    """Create arena wall configurations"""
-    walls = {}
-
-    # Wall positions and sizes
-    wall_configs = [
-        ("wall_right", (2.5, 0.0, 0.2), (wall_thickness, size, wall_height)),
-        ("wall_left", (-2.5, 0.0, 0.2), (wall_thickness, size, wall_height)),
-        ("wall_front", (0.0, 2.5, 0.2), (size, wall_thickness, wall_height)),
-        ("wall_back", (0.0, -2.5, 0.2), (size, wall_thickness, wall_height)),
-    ]
-
-    for i, (name, pos, size_tuple) in enumerate(wall_configs):
-        walls[name] = AssetBaseCfg(
-            prim_path=f"/World/Wall_{i}",
-            spawn=sim_utils.CuboidCfg(
-                size=size_tuple,
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=1000.0),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=pos),
-        )
-
-    return walls
 
 
 def create_aruco_tag_configs(tag_size=0.15, post_height=0.3):
@@ -128,53 +105,57 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
         super().__post_init__()
 
         # -- Arena: Use custom USD file
-        arena_usd_path = os.path.join(os.path.dirname(__file__), "assets", "arena_5x5.usd")
+        arena_usd_path = Path(__file__).parent / "assets" / "arena_5x5.usd"
+
+        if not arena_usd_path.exists():
+            raise FileNotFoundError(f"Arena USD file not found: {arena_usd_path}")
+
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="usd",
-            usd_path=arena_usd_path,
+            usd_path=arena_usd_path.as_posix(),  # Ensure path is in POSIX format for USD
         )
 
-        # -- Dynamic obstacles
-        # Prism obstacle 1
-        self.scene.prism_1 = AssetBaseCfg(
-            prim_path="/World/prism_1",
-            spawn=sim_utils.CuboidCfg(
-                size=(0.5, 0.5, 0.5),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 1.0, 0.25)),
-        )
+        # # -- Dynamic obstacles
+        # # Prism obstacle 1
+        # self.scene.prism_1 = AssetBaseCfg(
+        #     prim_path="/World/prism_1",
+        #     spawn=sim_utils.CuboidCfg(
+        #         size=(0.5, 0.5, 0.5),
+        #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        #         mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+        #         collision_props=sim_utils.CollisionPropertiesCfg(),
+        #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)),
+        #     ),
+        #     init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 1.0, 0.25)),
+        # )
 
-        # Prism obstacle 2
-        self.scene.prism_2 = AssetBaseCfg(
-            prim_path="/World/prism_2",
-            spawn=sim_utils.CuboidCfg(
-                size=(0.5, 0.5, 0.5),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.8, 0.2)),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.25)),
-        )
+        # # Prism obstacle 2
+        # self.scene.prism_2 = AssetBaseCfg(
+        #     prim_path="/World/prism_2",
+        #     spawn=sim_utils.CuboidCfg(
+        #         size=(0.5, 0.5, 0.5),
+        #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        #         mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+        #         collision_props=sim_utils.CollisionPropertiesCfg(),
+        #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.8, 0.2)),
+        #     ),
+        #     init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.25)),
+        # )
 
-        # Cylinder obstacle
-        self.scene.cylinder_1 = AssetBaseCfg(
-            prim_path="/World/cylinder_1",
-            spawn=sim_utils.CylinderCfg(
-                radius=0.3,
-                height=0.5,
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.2, 0.8)),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, -1.0, 0.25)),
-        )
+        # # Cylinder obstacle
+        # self.scene.cylinder_1 = AssetBaseCfg(
+        #     prim_path="/World/cylinder_1",
+        #     spawn=sim_utils.CylinderCfg(
+        #         radius=0.3,
+        #         height=0.5,
+        #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        #         mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+        #         collision_props=sim_utils.CollisionPropertiesCfg(),
+        #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.2, 0.8)),
+        #     ),
+        #     init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, -1.0, 0.25)),
+        # )
 
         # -- robot: Random spawn in safe zone (center 0.5x0.5m area)
         self.scene.robot.init_state.pos = (0.0, 0.0, 0.4)
@@ -187,19 +168,20 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
 
         # TODO: Set to teleop commands (Do not implement this now)
         self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
+        # self.observations.policy.velocity_commands = ObsTerm(func=keyboard_velocity_commands)
 
-        # -- Add event for obstacle randomization
-        self.events.randomize_obstacles = EventTerm(
-            func=randomize_obstacle_positions,
-            mode="reset",
-            params={
-                "asset_cfgs": [SceneEntityCfg("prism_1"), SceneEntityCfg("prism_2"), SceneEntityCfg("cylinder_1")],
-                "arena_size": 5.0,
-                "wall_buffer": 0.3,
-                "obstacle_buffer": 0.3,
-                "safe_zone_size": 0.5,
-            },
-        )
+        # # -- Add event for obstacle randomization
+        # self.events.randomize_obstacles = EventTerm(
+        #     func=randomize_obstacle_positions,
+        #     mode="reset",
+        #     params={
+        #         "asset_cfgs": [SceneEntityCfg("prism_1"), SceneEntityCfg("prism_2"), SceneEntityCfg("cylinder_1")],
+        #         "arena_size": 5.0,
+        #         "wall_buffer": 0.3,
+        #         "obstacle_buffer": 0.3,
+        #         "safe_zone_size": 0.5,
+        #     },
+        # )
 
         # Update robot spawn to be random within safe zone
         self.events.reset_base.params["pose_range"] = {"x": (-0.25, 0.25), "y": (-0.25, 0.25), "yaw": (-3.14, 3.14)}
@@ -267,3 +249,10 @@ def randomize_obstacle_positions(env, asset_cfgs, arena_size, wall_buffer, obsta
         asset.write_root_pose_to_sim(
             torch.cat([new_pos, torch.tensor([[0.0, 0.0, 0.0, 1.0]], device=env.device)], dim=1)
         )
+
+
+def keyboard_velocity_commands(env: ManagerBasedEnv, teleop_device: Se2Keyboard) -> torch.Tensor:
+    """Get velocity commands from keyboard input."""
+    # This function should be implemented to read keyboard inputs
+    # For now, we return a constant command
+    return torch.tensor([[0.0, 0.0, 0.0]], device=env.device).repeat(env.num_envs, 1)
