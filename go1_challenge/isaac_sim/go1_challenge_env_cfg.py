@@ -1,5 +1,6 @@
 import torch
 import os
+import numpy as np
 
 
 import isaaclab.sim as sim_utils
@@ -109,7 +110,7 @@ def create_aruco_tag_configs(tag_size=0.15, post_height=0.3):
 class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
     """Design the scene with Go1 robot and camera."""
 
-    # TODO: camera
+    # TODO: camera (Do not implement this now)
     # camera = CameraCfg(
     #     prim_path="{ENV_REGEX_NS}/Robot/base/front_cam",
     #     update_period=0.1,
@@ -126,22 +127,57 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
         """Post initialization to add dynamically generated components."""
         super().__post_init__()
 
-        # -- Arena
-        # change terrain to flat
-        self.scene.terrain.terrain_type = "plane"
-        self.scene.terrain.terrain_generator = None
+        # -- Arena: Use custom USD file
+        arena_usd_path = os.path.join(os.path.dirname(__file__), "assets", "arena_5x5.usd")
+        self.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="usd",
+            usd_path=arena_usd_path,
+        )
 
-        # TODO: load arena
-        # Maybe have three `levels`: 1: Straight line with walls, 2: Arena with obstacles,
-        # 3: More obstacles w/ rough terrain
-        # self.scene.terrain = TerrainImporterCfg(
-        #     prim_path="/World/ground",
-        #     terrain_type="usd",
-        #     usd_path=f"{ISAAC_NUCLEUS_DIR}/Environments/Simple_Warehouse/warehouse.usd",
-        # )
+        # -- Dynamic obstacles
+        # Prism obstacle 1
+        self.scene.prism_1 = AssetBaseCfg(
+            prim_path="/World/prism_1",
+            spawn=sim_utils.CuboidCfg(
+                size=(0.5, 0.5, 0.5),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+                mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)),
+            ),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 1.0, 0.25)),
+        )
 
-        # -- robot
-        self.scene.robot.init_state.pos = (1.5, 1.5, 0.4)  # x, y, z position (starting in top-right area)
+        # Prism obstacle 2
+        self.scene.prism_2 = AssetBaseCfg(
+            prim_path="/World/prism_2",
+            spawn=sim_utils.CuboidCfg(
+                size=(0.5, 0.5, 0.5),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+                mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.8, 0.2)),
+            ),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.25)),
+        )
+
+        # Cylinder obstacle
+        self.scene.cylinder_1 = AssetBaseCfg(
+            prim_path="/World/cylinder_1",
+            spawn=sim_utils.CylinderCfg(
+                radius=0.3,
+                height=0.5,
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+                mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.2, 0.8)),
+            ),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, -1.0, 0.25)),
+        )
+
+        # -- robot: Random spawn in safe zone (center 0.5x0.5m area)
+        self.scene.robot.init_state.pos = (0.0, 0.0, 0.4)
 
         self.scene.num_envs = 1
 
@@ -149,8 +185,24 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
         self.episode_length_s = 60.0
         self.curriculum = None
 
-        # TODO: Set to teleop commands
+        # TODO: Set to teleop commands (Do not implement this now)
         self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
+
+        # -- Add event for obstacle randomization
+        self.events.randomize_obstacles = EventTerm(
+            func=randomize_obstacle_positions,
+            mode="reset",
+            params={
+                "asset_cfgs": [SceneEntityCfg("prism_1"), SceneEntityCfg("prism_2"), SceneEntityCfg("cylinder_1")],
+                "arena_size": 5.0,
+                "wall_buffer": 0.3,
+                "obstacle_buffer": 0.3,
+                "safe_zone_size": 0.5,
+            },
+        )
+
+        # Update robot spawn to be random within safe zone
+        self.events.reset_base.params["pose_range"] = {"x": (-0.25, 0.25), "y": (-0.25, 0.25), "yaw": (-3.14, 3.14)}
 
 
 ##
@@ -163,85 +215,55 @@ def constant_commands(env: ManagerBasedEnv) -> torch.Tensor:
     return torch.tensor([[1, 0, 0]], device=env.device).repeat(env.num_envs, 1)
 
 
-@configclass
-class ActionsCfg:
-    """Action specifications for the MDP."""
+def randomize_obstacle_positions(env, asset_cfgs, arena_size, wall_buffer, obstacle_buffer, safe_zone_size):
+    """Randomly position obstacles in the arena avoiding walls and safe zone."""
 
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
+    # Define boundaries
+    min_coord = -arena_size / 2 + wall_buffer
+    max_coord = arena_size / 2 - wall_buffer
+    safe_half = safe_zone_size / 2
 
+    positions = []
 
-@configclass
-class ObservationsCfg:
-    """Observation specifications for the MDP."""
+    for asset_cfg in asset_cfgs:
+        max_attempts = 100
+        for attempt in range(max_attempts):
+            # Random position within arena bounds
+            x = np.random.uniform(min_coord, max_coord)
+            y = np.random.uniform(min_coord, max_coord)
 
-    @configclass
-    class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
+            # Check if position is outside safe zone (robot spawn area)
+            if abs(x) < safe_half and abs(y) < safe_half:
+                continue  # Too close to robot spawn
 
-        # observation terms (order preserved)
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        projected_gravity = ObsTerm(
-            func=mdp.projected_gravity,
-            noise=Unoise(n_min=-0.05, n_max=0.05),
+            # Check distance from other obstacles
+            valid_position = True
+            for prev_pos in positions:
+                distance = np.sqrt((x - prev_pos[0]) ** 2 + (y - prev_pos[1]) ** 2)
+                if distance < obstacle_buffer:
+                    valid_position = False
+                    break
+
+            if valid_position:
+                positions.append((x, y))
+                break
+        else:
+            # Fallback to safe position if no valid position found
+            angle = len(positions) * 2 * np.pi / len(asset_cfgs)
+            x = 1.5 * np.cos(angle)
+            y = 1.5 * np.sin(angle)
+            positions.append((x, y))
+
+    # Apply positions to assets
+    for i, asset_cfg in enumerate(asset_cfgs):
+        x, y = positions[i]
+        z = 0.25  # Height for all obstacles
+
+        # Get asset from scene
+        asset = env.scene[asset_cfg.name]
+
+        # Set new position
+        new_pos = torch.tensor([x, y, z], device=env.device).unsqueeze(0)
+        asset.write_root_pose_to_sim(
+            torch.cat([new_pos, torch.tensor([[0.0, 0.0, 0.0, 1.0]], device=env.device)], dim=1)
         )
-
-        velocity_commands = ObsTerm(func=constant_commands)
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        actions = ObsTerm(func=mdp.last_action)
-        # height_scan = ObsTerm(
-        #     func=mdp.height_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-        #     noise=Unoise(n_min=-0.1, n_max=0.1),
-        #     clip=(-1.0, 1.0),
-        # )
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_terms = True
-
-    # observation groups
-    policy: PolicyCfg = PolicyCfg()
-
-
-@configclass
-class FullObservationsCfg:
-    """Observation specifications for the MDP."""
-
-    @configclass
-    class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
-
-        # observation terms (order preserved)
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        projected_gravity = ObsTerm(
-            func=mdp.projected_gravity,
-            noise=Unoise(n_min=-0.05, n_max=0.05),
-        )
-        # velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-        velocity_commands = ObsTerm(func=constant_commands)
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        actions = ObsTerm(func=mdp.last_action)
-        height_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-            noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-1.0, 1.0),
-        )
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_terms = True
-
-    # observation groups
-    policy: PolicyCfg = PolicyCfg()
-
-
-@configclass
-class EventCfg:
-    """Configuration for events."""
-
-    reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset")

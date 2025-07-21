@@ -39,3 +39,5 @@ go1_nav_env.py --level=1  --policy=...
 ```
 
 
+## Tags
+Generated with https://chev.me/arucogen/

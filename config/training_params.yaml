@@ -22,12 +22,17 @@ logger: wandb  #   Logger module to use. {neptune, wandb, tensorboard}
 log_project_name: MRSS25  # Name of the logging project when using wandb or neptune.
 
 # --- Environment config
-# env:
+env:
 #   actions:
 #     joint_effort:
 #       scale: 10.0
 #   scene:
 #     num_envs: 512
+   terrain:
+      terrain_generator:
+        num_rows: 10  # Number of terrain rows. Default is 10.
+        num_cols: 20  # Number of terrain columns. Default is 20.
+
 
 # agent:
 #   trainer:

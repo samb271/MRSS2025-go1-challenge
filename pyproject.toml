@@ -13,17 +13,17 @@ authors = [{ name = "MRSS 2025 Team" }]
 
 classifiers = ["Programming Language :: Python :: 3.10"]
 dependencies = [
-    # "isaaclab",
-    # "isaaclab_tasks",
-    # "isaaclab_rl",
-    # # "rsl_rl",
-    # "gymnasium",
-    # "torch",
-    # "numpy",
+  # "isaaclab",
+  # "isaaclab_tasks",
+  # "isaaclab_rl",
+  # # "rsl_rl",
+  # "gymnasium",
+  # "torch",
+  # "numpy",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "black", "flake8", "mypy"]
+dev = ["pytest", "black", "flake8", "mypy", "pillow", "cairosvg"]
 
 # [project.urls]
 # Homepage = "https://github.com/your-org/MRSS2025"
