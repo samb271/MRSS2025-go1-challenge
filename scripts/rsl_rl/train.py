@@ -19,21 +19,7 @@ import cli_args  # isort: skip
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
-parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
-parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
-parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument(
-    "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
-)
-parser.add_argument("--config", type=str, default=None, help="Path to YAML config file with Hydra parameters.")
-# append RSL-RL cli arguments
-cli_args.add_rsl_rl_args(parser)
-# append AppLauncher cli args
-AppLauncher.add_app_launcher_args(parser)
+parser.add_argument("--config", type=str, default=None, required=True, help="Path to YAML config file with Hydra parameters.")
 args_cli, hydra_args = parser.parse_known_args()
 
 # load parameters from YAML config file if provided
@@ -65,7 +51,6 @@ if args_cli.config:
             "run_name",
             "resume",
             "load_run",
-            "checkpoint",
             "logger",
             "log_project_name",
         ]:
@@ -75,8 +60,7 @@ if args_cli.config:
 
     # set CLI arguments from config
     for key, value in cli_params.items():
-        if hasattr(args_cli, key):
-            setattr(args_cli, key, value)
+        setattr(args_cli, key, value)
 
     # # add AppLauncher arguments to hydra_args
     # for key, value in app_launcher_params.items():
@@ -97,6 +81,8 @@ if args_cli.config:
 
     # add config parameters to hydra_args
     hydra_args.extend(dict_to_hydra_overrides(hydra_params))
+
+AppLauncher.add_app_launcher_args(parser)
 
 # always enable cameras to record video
 if args_cli.video:
@@ -171,15 +157,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     """Train with RSL-RL agent."""
     # override configurations with non-hydra CLI arguments
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
-    env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-    agent_cfg.max_iterations = (
-        args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
-    )
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here
     env_cfg.seed = agent_cfg.seed
-    env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
     # multi-gpu training configuration
     if args_cli.distributed:
