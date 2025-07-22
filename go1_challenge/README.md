@@ -45,5 +45,12 @@ Generated with https://chev.me/arucogen/
 ## Installation
 
 Dependencies (to add in the pyproject)
-- apriltag
-- opencv-python
+- pyapriltags
+<!-- - opencv-python -->
+
+
+1. Install Isaac Sim 4.5.0 from binaries
+   https://docs.isaacsim.omniverse.nvidia.com/4.5.0/installation/install_workstation.html#workstation-setup
+
+2. Install Isaac Lab
+3. 

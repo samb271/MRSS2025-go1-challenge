@@ -30,6 +30,7 @@ parser.add_argument(
     default="unitree_go1_rough/2025-07-17_18-39-56/exported/policy.pt",
     help="Path to the trained policy file.",
 )
+parser.add_argument("--visualize_tags", action="store_true", help="Visualize detected AprilTags in a separate window.")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -58,12 +59,9 @@ from isaaclab.devices import Se2Keyboard
 
 # AprilTag detection
 try:
-    import apriltag
-
-    APRILTAG_AVAILABLE = True
+    from pyapriltags import Detector
 except ImportError:
-    APRILTAG_AVAILABLE = False
-    print("Warning: apriltag library not available. Install with: pip install apriltag")
+    print("Warning: pyapriltags library not available. Install with: pip install pyapriltags")
 
 ##
 # Pre-defined configs
@@ -75,6 +73,16 @@ DEVICE = "cpu"
 
 NAV_FREQ = 4
 LOCALIZATION_FREQ = 10  # Frequency for localization updates
+
+at_detector = Detector(
+    families="tag36h11",
+    nthreads=1,
+    quad_decimate=1.0,
+    quad_sigma=0.0,
+    refine_edges=1,
+    decode_sharpening=0.25,
+    debug=0,
+)
 
 
 def load_policy_rsl(policy_file: str):
@@ -120,7 +128,6 @@ def get_camera_intrinsics(camera_cfg):
     height = camera_cfg.height
 
     # Convert focal length to pixels
-    # fx = fy = (focal_length / horizontal_aperture) * width
     fx = fy = (focal_length * width) / horizontal_aperture
 
     # Principal point (assuming centered)
@@ -130,32 +137,35 @@ def get_camera_intrinsics(camera_cfg):
     # Camera intrinsic matrix
     camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
 
-    # Distortion coefficients (assuming no distortion for sim)
-    dist_coeffs = np.zeros((4, 1), dtype=np.float64)
+    # Camera parameters tuple format for pyapriltags: (fx, fy, cx, cy)
+    camera_params = (fx, fy, cx, cy)
 
-    return camera_matrix, dist_coeffs
+    return camera_matrix, camera_params
 
 
 def detect_apriltags(
-    rgb_image: torch.Tensor, camera_matrix: np.ndarray, tag_size: float = 0.2, tag_family: str = "tag36h11"
+    rgb_image: torch.Tensor,
+    camera_params: tuple,
+    tag_size: float = 0.2,
+    tag_family: str = "tag36h11",
+    visualize: bool = False,
 ) -> dict:
     """
-    Detect AprilTags in RGB image and estimate their poses relative to camera frame.
+    Detect AprilTags in RGB image and estimate their poses using pyapriltags.
 
     Args:
         rgb_image: RGB image tensor from IsaacLab camera (H, W, 3)
-        camera_matrix: 3x3 camera intrinsic matrix
+        camera_params: Camera parameters tuple (fx, fy, cx, cy)
         tag_size: Physical size of tags in meters
         tag_family: AprilTag family name
+        visualize: Whether to show visualization window
 
     Returns:
         Dictionary of detected tags with poses in robot/camera frame
     """
-    if not APRILTAG_AVAILABLE:
-        print("AprilTag library not available")
-        return {}
 
     try:
+        # --- Format images
         # Convert tensor to numpy and ensure correct format
         if isinstance(rgb_image, torch.Tensor):
             # Convert from tensor to numpy, ensure CPU and correct dtype
@@ -177,99 +187,78 @@ def detect_apriltags(
         else:
             gray = image_np
 
-        # Initialize AprilTag detector
-        detector = apriltag.Detector(apriltag.DetectorOptions(families=tag_family))
+        # Detect tags with pose estimation
+        tags = at_detector.detect(gray, estimate_tag_pose=True, camera_params=camera_params, tag_size=tag_size)
 
-        # Detect tags
-        results = detector.detect(gray)
-
-        if len(results) == 0:
+        if len(tags) == 0:
+            if visualize:
+                # Show image even if no tags detected
+                cv2.imshow("AprilTag Detection", image_np)
+                cv2.waitKey(1)
             return {}
 
         detected_tags = {}
 
-        # Camera parameters for pose estimation
-        fx, fy = camera_matrix[0, 0], camera_matrix[1, 1]
-        cx, cy = camera_matrix[0, 2], camera_matrix[1, 2]
+        # Create visualization if requested
+        if visualize:
+            # Convert grayscale back to color for visualization
+            vis_image = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
 
-        for detection in results:
-            tag_id = detection.tag_id
+        for tag in tags:
+            tag_id = tag.tag_id
 
-            # Get corner points
-            corners = detection.corners.astype(np.float32)
-            center = detection.center
+            # Get pose information
+            position = tag.pose_t.flatten()  # Translation vector [x, y, z]
+            rotation_matrix = tag.pose_R  # 3x3 rotation matrix
 
-            # 3D object points for tag (tag lies in XY plane, Z=0)
-            # Standard AprilTag coordinate system: origin at center, edges at ±tag_size/2
-            half_size = tag_size / 2.0
-            object_points = np.array(
-                [
-                    [-half_size, -half_size, 0],  # Bottom-left
-                    [half_size, -half_size, 0],  # Bottom-right
-                    [half_size, half_size, 0],  # Top-right
-                    [-half_size, half_size, 0],  # Top-left
-                ],
-                dtype=np.float32,
-            )
+            # Calculate distance
+            distance = np.linalg.norm(position)
 
-            # Solve PnP to get pose
-            success, rvec, tvec = cv2.solvePnP(
-                object_points,
-                corners,
-                camera_matrix,
-                np.zeros((4, 1)),  # No distortion in simulation
-            )
+            detected_tags[tag_id] = {
+                "corners": tag.corners.tolist(),
+                "center": tag.center.tolist(),
+                "pose": {
+                    "position": position.tolist(),  # [x, y, z] in camera frame
+                    "rotation_matrix": rotation_matrix.tolist(),
+                },
+                "distance": float(distance),
+                "confidence": float(tag.decision_margin),  # Detection confidence
+            }
 
-            if success:
-                # Convert rotation vector to rotation matrix
-                # rotation_matrix, _ = cv2.Rodrigues(rvec)
+            # Add visualization elements
+            if visualize:
+                # Draw tag outline
+                corners = tag.corners.astype(int)
+                for idx in range(len(corners)):
+                    cv2.line(vis_image, tuple(corners[idx - 1]), tuple(corners[idx]), (0, 255, 0), 2)
 
-                # Convert rotation matrix to quaternion (w, x, y, z)
-                def rotation_matrix_to_quaternion(R):
-                    """Convert rotation matrix to quaternion."""
-                    trace = np.trace(R)
-                    if trace > 0:
-                        s = np.sqrt(trace + 1.0) * 2  # s = 4 * qw
-                        qw = 0.25 * s
-                        qx = (R[2, 1] - R[1, 2]) / s
-                        qy = (R[0, 2] - R[2, 0]) / s
-                        qz = (R[1, 0] - R[0, 1]) / s
-                    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-                        s = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2  # s = 4 * qx
-                        qw = (R[2, 1] - R[1, 2]) / s
-                        qx = 0.25 * s
-                        qy = (R[0, 1] + R[1, 0]) / s
-                        qz = (R[0, 2] + R[2, 0]) / s
-                    elif R[1, 1] > R[2, 2]:
-                        s = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2  # s = 4 * qy
-                        qw = (R[0, 2] - R[2, 0]) / s
-                        qx = (R[0, 1] + R[1, 0]) / s
-                        qy = 0.25 * s
-                        qz = (R[1, 2] + R[2, 1]) / s
-                    else:
-                        s = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2  # s = 4 * qz
-                        qw = (R[1, 0] - R[0, 1]) / s
-                        qx = (R[0, 2] + R[2, 0]) / s
-                        qy = (R[1, 2] + R[2, 1]) / s
-                        qz = 0.25 * s
-                    return [qw, qx, qy, qz]
+                # Add tag ID text
+                center = tag.center.astype(int)
+                cv2.putText(
+                    vis_image,
+                    f"ID:{tag_id}",
+                    org=(center[0] - 20, center[1] - 10),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.6,
+                    color=(0, 0, 255),
+                    thickness=2,
+                )
 
-                # quaternion = rotation_matrix_to_quaternion(rotation_matrix)
+                # Add distance text
+                cv2.putText(
+                    vis_image,
+                    f"{distance:.2f}m",
+                    org=(center[0] - 20, center[1] + 15),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.5,
+                    color=(255, 0, 0),
+                    thickness=1,
+                )
 
-                # Calculate distance
-                distance = np.linalg.norm(tvec)
-
-                detected_tags[tag_id] = {
-                    "corners": corners.tolist(),
-                    "center": center.tolist(),
-                    "pose": {
-                        "position": tvec.flatten().tolist(),  # [x, y, z] in camera frame
-                        # "rotation": quaternion,  # [qw, qx, qy, qz]
-                        # "rotation_matrix": rotation_matrix.tolist(),
-                    },
-                    "distance": float(distance),
-                    "confidence": float(detection.decision_margin),  # Detection confidence
-                }
+        # Show visualization window
+        if visualize:
+            cv2.imshow("AprilTag Detection", vis_image)
+            cv2.waitKey(1)  # Non-blocking
 
         print(f"[INFO] Detected {len(detected_tags)} AprilTags: {list(detected_tags.keys())}")
         return detected_tags
@@ -314,11 +303,14 @@ def main():
 
     # Get camera intrinsics from environment configuration
     camera_cfg = env.cfg.scene.camera
-    camera_matrix, dist_coeffs = get_camera_intrinsics(camera_cfg)
+    camera_matrix, camera_params = get_camera_intrinsics(camera_cfg)
 
     print(f"[INFO] Camera intrinsics calculated:")
     print(f"  Camera matrix:\n{camera_matrix}")
+    print(f"  Camera params: {camera_params}")
     print(f"  Image size: {camera_cfg.width}x{camera_cfg.height}")
+    if args_cli.visualize_tags:
+        print(f"[INFO] Tag visualization enabled")
 
     print("\n[INFO] Teleoperation started. Use WASD+QE to control the robot.")
 
@@ -330,12 +322,13 @@ def main():
                 rgb_data = env.scene["camera"].data.output["rgb"][0, ..., :3]
                 distance_data = env.scene["camera"].data.output["distance_to_image_plane"][0]
 
-                # AprilTag localization
+                # AprilTag localization using pyapriltags
                 detected_tags = detect_apriltags(
                     rgb_image=rgb_data,
-                    camera_matrix=camera_matrix,
+                    camera_params=camera_params,  # Use camera params tuple
                     tag_size=0.2,  # 0.2m tag size as specified
                     tag_family="tag36h11",
+                    visualize=False,  # args_cli.visualize_tags,  # Add visualization option
                 )
 
                 if detected_tags:
@@ -344,14 +337,11 @@ def main():
                     for tag_id, tag_data in detected_tags.items():
                         pos = tag_data["pose"]["position"]
                         dist = tag_data["distance"]
-                        print(f"  Tag {tag_id}: pos=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}), dist={dist:.2f}m")
-
+                        conf = tag_data["confidence"]
+                        print(
+                            f"  Tag {tag_id}: pos=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}), dist={dist:.2f}m, conf={conf:.2f}"
+                        )
                     print("-------------------------------")
-
-                # print("-------------------------------")
-                # print("Received shape of rgb   image: ", rgb_data.shape)
-                # print("Received shape of depth image: ", distance_data.shape)
-                # print("-------------------------------")
 
             # Teleop Commands
             keyboard_command = teleop_interface.advance()
@@ -365,8 +355,10 @@ def main():
 
             count += 1
 
-    # Cleanup
-    # keyboard_interface.cleanup()
+    # Cleanup visualization window
+    if args_cli.visualize_tags:
+        cv2.destroyAllWindows()
+
     env.close()
 
 

@@ -131,6 +131,8 @@ def load_gym_env() -> ManagerBasedRLEnv:
 
     env_cfg.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
 
+    env_cfg.scene.camera = None  # Disable camera for this example
+
     env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
 
