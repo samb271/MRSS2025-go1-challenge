@@ -36,15 +36,19 @@ AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()
 
+args_cli.enable_cameras = True
+
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
+
 
 """Rest everything follows."""
 
 import numpy as np
 import torch
 import carb
+import cv2
 
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -52,89 +56,25 @@ from isaaclab.utils.assets import read_file
 from isaacsim.core.utils.viewports import set_camera_view
 from isaaclab.devices import Se2Keyboard
 
+# AprilTag detection
+try:
+    import apriltag
+
+    APRILTAG_AVAILABLE = True
+except ImportError:
+    APRILTAG_AVAILABLE = False
+    print("Warning: apriltag library not available. Install with: pip install apriltag")
+
 ##
 # Pre-defined configs
 ##
-from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg, keyboard_velocity_commands
+from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg
 
 PKG_PATH = Path(__file__).parent.parent.parent
 DEVICE = "cpu"
 
-
-class VelocityKeyboardInterface:
-    """Keyboard interface for setting velocity commands."""
-
-    def __init__(self, lin_vel_scale: float = 1.0, ang_vel_scale: float = 1.0):
-        self.lin_vel_scale = lin_vel_scale
-        self.ang_vel_scale = ang_vel_scale
-        self.velocity_command = torch.zeros(3)  # [lin_vel_x, lin_vel_y, ang_vel_z]
-        self.pressed_keys = set()
-
-        # Key mappings
-        self.key_bindings = {
-            "w": (0, self.lin_vel_scale),  # forward
-            "s": (0, -self.lin_vel_scale),  # backward
-            "a": (1, self.lin_vel_scale),  # left
-            "d": (1, -self.lin_vel_scale),  # right
-            "q": (2, self.ang_vel_scale),  # rotate left
-            "e": (2, -self.ang_vel_scale),  # rotate right
-        }
-
-        self._setup_keyboard()
-
-        print("Velocity Control Keys:")
-        print("  W/S: Forward/Backward")
-        print("  A/D: Left/Right")
-        print("  Q/E: Rotate Left/Right")
-        print("  R: Reset environment")
-        print("  ESC: Exit")
-
-    def _setup_keyboard(self):
-        """Setup keyboard event handling."""
-        import omni.appwindow
-
-        self.app_window = omni.appwindow.get_default_app_window()
-        self.input_interface = carb.input.acquire_input_interface()
-        self.keyboard = self.app_window.get_keyboard()
-
-        # Subscribe to keyboard events
-        self.sub_keyboard = self.input_interface.subscribe_to_keyboard_events(self.keyboard, self._on_keyboard_event)
-
-    def _on_keyboard_event(self, event):
-        """Handle keyboard events."""
-        if event.input >= 128:  # Skip non-ASCII keys
-            return
-
-        key_name = chr(event.input).lower()
-
-        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            self.pressed_keys.add(key_name)
-        elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
-            self.pressed_keys.discard(key_name)
-
-        # Update velocity commands based on pressed keys
-        self.velocity_command.zero_()
-        for key in self.pressed_keys:
-            if key in self.key_bindings:
-                axis, value = self.key_bindings[key]
-                self.velocity_command[axis] += value
-
-    def get_command(self) -> torch.Tensor:
-        """Get current velocity command."""
-        return self.velocity_command.clone()
-
-    def should_reset(self) -> bool:
-        """Check if reset key was pressed."""
-        return "r" in self.pressed_keys
-
-    def should_exit(self) -> bool:
-        """Check if exit key was pressed."""
-        return chr(27) in [chr(event.input) for event in []]  # ESC key handling would be more complex
-
-    def cleanup(self):
-        """Cleanup keyboard subscription."""
-        if hasattr(self, "sub_keyboard"):
-            self.input_interface.unsubscribe_to_keyboard_events(self.keyboard, self.sub_keyboard)
+NAV_FREQ = 4
+LOCALIZATION_FREQ = 10  # Frequency for localization updates
 
 
 def load_policy_rsl(policy_file: str):
@@ -159,10 +99,7 @@ def load_gym_env() -> ManagerBasedRLEnv:
     if DEVICE == "cpu":
         env_cfg.sim.use_fabric = False
 
-    # # Use keyboard velocity commands for observations
-    # env_cfg.observations.policy.velocity_commands = ObsTerm(
-    #     func=keyboard_velocity_commands, params={"teleop_device": teleop_interface}
-    # )
+    env_cfg.episode_length_s = 60.0
 
     env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
@@ -172,6 +109,174 @@ def quit_cb():
     """Dummy callback function executed when the key 'ESC' is pressed."""
     print("Quit callback")
     simulation_app.close()
+
+
+def get_camera_intrinsics(camera_cfg):
+    """Extract camera intrinsic parameters from IsaacLab camera configuration."""
+    # Camera parameters from CameraCfg
+    focal_length = camera_cfg.spawn.focal_length  # in mm
+    horizontal_aperture = camera_cfg.spawn.horizontal_aperture  # in mm
+    width = camera_cfg.width
+    height = camera_cfg.height
+
+    # Convert focal length to pixels
+    # fx = fy = (focal_length / horizontal_aperture) * width
+    fx = fy = (focal_length * width) / horizontal_aperture
+
+    # Principal point (assuming centered)
+    cx = width / 2.0
+    cy = height / 2.0
+
+    # Camera intrinsic matrix
+    camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
+
+    # Distortion coefficients (assuming no distortion for sim)
+    dist_coeffs = np.zeros((4, 1), dtype=np.float64)
+
+    return camera_matrix, dist_coeffs
+
+
+def detect_apriltags(
+    rgb_image: torch.Tensor, camera_matrix: np.ndarray, tag_size: float = 0.2, tag_family: str = "tag36h11"
+) -> dict:
+    """
+    Detect AprilTags in RGB image and estimate their poses relative to camera frame.
+
+    Args:
+        rgb_image: RGB image tensor from IsaacLab camera (H, W, 3)
+        camera_matrix: 3x3 camera intrinsic matrix
+        tag_size: Physical size of tags in meters
+        tag_family: AprilTag family name
+
+    Returns:
+        Dictionary of detected tags with poses in robot/camera frame
+    """
+    if not APRILTAG_AVAILABLE:
+        print("AprilTag library not available")
+        return {}
+
+    try:
+        # Convert tensor to numpy and ensure correct format
+        if isinstance(rgb_image, torch.Tensor):
+            # Convert from tensor to numpy, ensure CPU and correct dtype
+            image_np = rgb_image.detach().cpu().numpy()
+        else:
+            image_np = rgb_image
+
+        # Ensure image is in uint8 format and correct shape
+        if image_np.dtype != np.uint8:
+            # Assuming image is in [0, 1] range, convert to [0, 255]
+            if image_np.max() <= 1.0:
+                image_np = (image_np * 255).astype(np.uint8)
+            else:
+                image_np = image_np.astype(np.uint8)
+
+        # Convert to grayscale for AprilTag detection
+        if len(image_np.shape) == 3:
+            gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = image_np
+
+        # Initialize AprilTag detector
+        detector = apriltag.Detector(apriltag.DetectorOptions(families=tag_family))
+
+        # Detect tags
+        results = detector.detect(gray)
+
+        if len(results) == 0:
+            return {}
+
+        detected_tags = {}
+
+        # Camera parameters for pose estimation
+        fx, fy = camera_matrix[0, 0], camera_matrix[1, 1]
+        cx, cy = camera_matrix[0, 2], camera_matrix[1, 2]
+
+        for detection in results:
+            tag_id = detection.tag_id
+
+            # Get corner points
+            corners = detection.corners.astype(np.float32)
+            center = detection.center
+
+            # 3D object points for tag (tag lies in XY plane, Z=0)
+            # Standard AprilTag coordinate system: origin at center, edges at ±tag_size/2
+            half_size = tag_size / 2.0
+            object_points = np.array(
+                [
+                    [-half_size, -half_size, 0],  # Bottom-left
+                    [half_size, -half_size, 0],  # Bottom-right
+                    [half_size, half_size, 0],  # Top-right
+                    [-half_size, half_size, 0],  # Top-left
+                ],
+                dtype=np.float32,
+            )
+
+            # Solve PnP to get pose
+            success, rvec, tvec = cv2.solvePnP(
+                object_points,
+                corners,
+                camera_matrix,
+                np.zeros((4, 1)),  # No distortion in simulation
+            )
+
+            if success:
+                # Convert rotation vector to rotation matrix
+                # rotation_matrix, _ = cv2.Rodrigues(rvec)
+
+                # Convert rotation matrix to quaternion (w, x, y, z)
+                def rotation_matrix_to_quaternion(R):
+                    """Convert rotation matrix to quaternion."""
+                    trace = np.trace(R)
+                    if trace > 0:
+                        s = np.sqrt(trace + 1.0) * 2  # s = 4 * qw
+                        qw = 0.25 * s
+                        qx = (R[2, 1] - R[1, 2]) / s
+                        qy = (R[0, 2] - R[2, 0]) / s
+                        qz = (R[1, 0] - R[0, 1]) / s
+                    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+                        s = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2  # s = 4 * qx
+                        qw = (R[2, 1] - R[1, 2]) / s
+                        qx = 0.25 * s
+                        qy = (R[0, 1] + R[1, 0]) / s
+                        qz = (R[0, 2] + R[2, 0]) / s
+                    elif R[1, 1] > R[2, 2]:
+                        s = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2  # s = 4 * qy
+                        qw = (R[0, 2] - R[2, 0]) / s
+                        qx = (R[0, 1] + R[1, 0]) / s
+                        qy = 0.25 * s
+                        qz = (R[1, 2] + R[2, 1]) / s
+                    else:
+                        s = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2  # s = 4 * qz
+                        qw = (R[1, 0] - R[0, 1]) / s
+                        qx = (R[0, 2] + R[2, 0]) / s
+                        qy = (R[1, 2] + R[2, 1]) / s
+                        qz = 0.25 * s
+                    return [qw, qx, qy, qz]
+
+                # quaternion = rotation_matrix_to_quaternion(rotation_matrix)
+
+                # Calculate distance
+                distance = np.linalg.norm(tvec)
+
+                detected_tags[tag_id] = {
+                    "corners": corners.tolist(),
+                    "center": center.tolist(),
+                    "pose": {
+                        "position": tvec.flatten().tolist(),  # [x, y, z] in camera frame
+                        # "rotation": quaternion,  # [qw, qx, qy, qz]
+                        # "rotation_matrix": rotation_matrix.tolist(),
+                    },
+                    "distance": float(distance),
+                    "confidence": float(detection.decision_margin),  # Detection confidence
+                }
+
+        print(f"[INFO] Detected {len(detected_tags)} AprilTags: {list(detected_tags.keys())}")
+        return detected_tags
+
+    except Exception as e:
+        print(f"[ERROR] AprilTag detection failed: {e}")
+        return {}
 
 
 def main():
@@ -204,30 +309,55 @@ def main():
     obs, _ = env.reset()
 
     count = 0
+    nav_count = 1 / (NAV_FREQ * env.cfg.sim.dt)
+    localization_count = 1 / (LOCALIZATION_FREQ * env.cfg.sim.dt)
+
+    # Get camera intrinsics from environment configuration
+    camera_cfg = env.cfg.scene.camera
+    camera_matrix, dist_coeffs = get_camera_intrinsics(camera_cfg)
+
+    print(f"[INFO] Camera intrinsics calculated:")
+    print(f"  Camera matrix:\n{camera_matrix}")
+    print(f"  Image size: {camera_cfg.width}x{camera_cfg.height}")
 
     print("\n[INFO] Teleoperation started. Use WASD+QE to control the robot.")
 
     while simulation_app.is_running():
         with torch.inference_mode():
-            # # Check for reset
-            # if keyboard_interface.should_reset() or count % 1000 == 0:
-            #     obs, _ = env.reset()
-            #     keyboard_interface.pressed_keys.discard("r")  # Clear reset key
-            #     count = 0
-            #     print("-" * 80)
-            #     print("[INFO]: Resetting environment...")
+            # Navigation loop
+            if count % localization_count == 0:
+                # Get camera images
+                rgb_data = env.scene["camera"].data.output["rgb"][0, ..., :3]
+                distance_data = env.scene["camera"].data.output["distance_to_image_plane"][0]
 
-            # # Get velocity command from keyboard
-            # velocity_cmd = keyboard_interface.get_command()
+                # AprilTag localization
+                detected_tags = detect_apriltags(
+                    rgb_image=rgb_data,
+                    camera_matrix=camera_matrix,
+                    tag_size=0.2,  # 0.2m tag size as specified
+                    tag_family="tag36h11",
+                )
 
-            # # Set keyboard commands on environment for observation function
-            # env._keyboard_commands = velocity_cmd.unsqueeze(0)  # Add batch dimension
+                if detected_tags:
+                    print("-------------------------------")
+                    print(f"[LOCALIZATION] Detected tags: {list(detected_tags.keys())}")
+                    for tag_id, tag_data in detected_tags.items():
+                        pos = tag_data["pose"]["position"]
+                        dist = tag_data["distance"]
+                        print(f"  Tag {tag_id}: pos=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}), dist={dist:.2f}m")
 
+                    print("-------------------------------")
+
+                # print("-------------------------------")
+                # print("Received shape of rgb   image: ", rgb_data.shape)
+                # print("Received shape of depth image: ", distance_data.shape)
+                # print("-------------------------------")
+
+            # Teleop Commands
             keyboard_command = teleop_interface.advance()
-            # print(keyboard_command)
             obs["policy"][:, 9:12] = torch.tensor(keyboard_command)  # Update policy observation with keyboard command
 
-            # Use trained policy to get joint position actions
+            # Policy inference
             action = policy(obs["policy"])
 
             # Step environment

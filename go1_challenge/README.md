@@ -41,3 +41,9 @@ go1_nav_env.py --level=1  --policy=...
 
 ## Tags
 Generated with https://chev.me/arucogen/
+
+## Installation
+
+Dependencies (to add in the pyproject)
+- apriltag
+- opencv-python

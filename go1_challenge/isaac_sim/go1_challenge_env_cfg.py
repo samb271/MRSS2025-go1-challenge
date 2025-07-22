@@ -87,19 +87,6 @@ def create_aruco_tag_configs(tag_size=0.15, post_height=0.3):
 class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
     """Design the scene with Go1 robot and camera."""
 
-    # TODO: camera (Do not implement this now)
-    # camera = CameraCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base/front_cam",
-    #     update_period=0.1,
-    #     height=480,
-    #     width=640,
-    #     data_types=["rgb"],
-    #     spawn=sim_utils.PinholeCameraCfg(
-    #         focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
-    #     ),
-    #     offset=CameraCfg.OffsetCfg(pos=(0.3, 0.0, 0.1), rot=(0.0, 0.0, 0.0, 1.0), convention="world"),
-    # )
-
     def __post_init__(self):
         """Post initialization to add dynamically generated components."""
         super().__post_init__()
@@ -114,6 +101,21 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
             prim_path="/World/ground",
             terrain_type="usd",
             usd_path=arena_usd_path.as_posix(),  # Ensure path is in POSIX format for USD
+        )
+
+        # -- Camera
+        self.scene.camera = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/trunk/front_cam",
+            update_period=0.1,
+            height=480,
+            width=640,
+            data_types=["rgb", "distance_to_image_plane"],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
+            ),
+            offset=CameraCfg.OffsetCfg(
+                pos=(0.25, 0.0, 0.08), rot=(1.0, 0.0, 0.0, 0.0), convention="world"
+            ),  # TODO: Validate
         )
 
         # # -- Dynamic obstacles

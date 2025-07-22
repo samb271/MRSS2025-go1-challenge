@@ -21,7 +21,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, CameraCfg, patterns
 from isaaclab.terrains import TerrainImporterCfg, TerrainGeneratorCfg
 
 from isaaclab.utils import configclass
@@ -82,6 +82,8 @@ class LocoSceneCfg(InteractiveSceneCfg):
     )
 
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+
+    camera: CameraCfg | None = None
 
     # lights
     sky_light = AssetBaseCfg(
