@@ -1,4 +1,4 @@
-task: Isaac-Velocity-Flat-Unitree-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
+task: MRSS-Velocity-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
 seed: 1 # TODO: Performance should be somewhat consistent across seeds but pls verify
 max_iterations: 1500  # TODO: Adjust this to train for longer: 1.5k should give you a working policy for rough terrain
 distributed: False  # Whether to use distributed training.
@@ -9,7 +9,7 @@ headless: true
 # enable_cameras: false
 
 #experiment_name: EXPERIMENT_NAME  # Name of the experiment folder where logs will be stored.
-run_name: no_base_lin_vel   # Run name suffix to the log directory.
+run_name: mrss_no_base_lin_vel  # Run name suffix to the log directory.
 resume: false  # Whether to resume from a checkpoint.
 #load_run: LOAD_RUN   # Name of the run folder to resume from.
 #checkpoint: CHECKPOINT  # Checkpoint file to resume from.
@@ -18,7 +18,7 @@ log_project_name: MRSS25  # Name of the logging project when using wandb or nept
 
 env:
   scene:
-    num_envs: 4096  # Number of environments to generate terrain for and run in parallel. TODO: Adjust this to your machine. More robot means faster training, fewer robots means less VRAM usage.
+    num_envs: 4  # Number of environments to generate terrain for and run in parallel. TODO: Adjust this to your machine. More robot means faster training, fewer robots means less VRAM usage.
     terrain:
       max_init_terrain_level: 5
       physics_material:
@@ -30,19 +30,19 @@ env:
         restitution: 0.0
         restitution_combine_mode: 'multiply'
         static_friction: 1.0
-#      terrain_generator:
-#        border_height: 1.0
-#        border_width: 20.0
-#        cache_dir: '/tmp/isaaclab/terrains'
-#        curriculum: True
-#        difficulty_range: [ 0.0, 1.0 ]
-#        horizontal_scale: 0.1
-#        num_cols: 20
-#        num_rows: 10
-#        size: [ 8.0, 8.0 ]
-#        slope_threshold: 0.75
-#        use_cache: False
-#        vertical_scale: 0.005
+      terrain_generator:
+        border_height: 1.0
+        border_width: 20.0
+        cache_dir: '/tmp/isaaclab/terrains'
+        curriculum: True
+        difficulty_range: [ 0.0, 1.0 ]
+        horizontal_scale: 0.1
+        num_cols: 20
+        num_rows: 10
+        size: [ 8.0, 8.0 ]
+        slope_threshold: 0.75
+        use_cache: False
+        vertical_scale: 0.005
   rewards: # TODO: Play with these
     action_rate_l2:
       weight: -0.1
