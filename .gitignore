@@ -173,4 +173,4 @@ cython_debug/
 .idea/
 
 
-_isaac_sim/
+_isaac_sim
