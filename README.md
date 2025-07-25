@@ -34,8 +34,12 @@ pip install wandb
 Here are some plots you should expect to see in the WandB dashboard:
 
 <details>
-    ![WandB Dashboard](./config/wandb_plots.png)
-</details> 
+  <summary>Click to view the WandB Dashboard plot</summary>
+
+  <p>
+    <img src="./config/wandb_plots.png" alt="WandB Dashboard" />
+  </p>
+</details>
 
 ### Playing Policy
 
