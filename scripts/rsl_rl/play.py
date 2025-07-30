@@ -74,6 +74,10 @@ def main():
     )
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
+    # TODO
+    # remove linear base vel observation
+    env_cfg.observations.policy.base_lin_vel = None  # Use null to disable this observation.
+
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
     log_root_path = os.path.abspath(log_root_path)

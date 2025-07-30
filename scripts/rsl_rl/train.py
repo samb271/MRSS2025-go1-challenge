@@ -47,6 +47,9 @@ if args_cli.config:
 
     # separate different types of parameters
     for key, value in config_params.items():
+        # if value == "None":
+        #     value = None
+
         if key in [
             "task",
             "headless",

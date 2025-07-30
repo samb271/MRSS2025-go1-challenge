@@ -2,7 +2,7 @@
 task: MRSS-Velocity-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
 num_envs: 2048  # Number of environments to simulate.
 seed: 42  # Seed used for the environment
-# max_iterations: MAX_ITERATIONS  # RL Policy training iterations.
+max_iterations: 1500  # RL Policy training iterations.
 
 video: false  # Record videos during training.
 video_length: 10  # Length of the recorded video (in steps).
@@ -23,15 +23,25 @@ log_project_name: MRSS25  # Name of the logging project when using wandb or nept
 
 # --- Environment config
 env:
-#   actions:
-#     joint_effort:
-#       scale: 10.0
-#   scene:
-#     num_envs: 512
-   terrain:
-      terrain_generator:
-        num_rows: 10  # Number of terrain rows. Default is 10.
-        num_cols: 20  # Number of terrain columns. Default is 20.
+   # actions:
+   #    joint_effort:
+   #       scale: 10.0  # Scale for joint effort actions.
+   # scene:
+   #    terrain:
+   #       # terrain_generator:
+   #       # num_rows: 10  # Number of terrain rows. Default is 10.
+   #       # num_cols: 20  # Number of terrain columns. Default is 20.
+
+   #       terrain_type: plane
+   #       terrain_generator: 'null'
+   
+   # curriculum:
+   #    terrain_levels: 'null'
+
+   observations:
+      policy:
+         base_lin_vel: 'null'  # Use null to disable this observation.
+
 
 
 # agent:

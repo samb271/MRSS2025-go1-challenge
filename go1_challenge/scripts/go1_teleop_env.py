@@ -74,6 +74,8 @@ DEVICE = "cpu"
 NAV_FREQ = 4
 LOCALIZATION_FREQ = 10  # Frequency for localization updates
 
+OBS_BASE_VEL = False
+
 at_detector = Detector(
     families="tag36h11",
     nthreads=1,
@@ -108,6 +110,9 @@ def load_gym_env() -> ManagerBasedRLEnv:
         env_cfg.sim.use_fabric = False
 
     env_cfg.episode_length_s = 60.0
+
+    if not OBS_BASE_VEL:
+        env_cfg.observations.policy.base_lin_vel = None  # Use null to disable this observation.
 
     env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
@@ -288,7 +293,7 @@ def main():
     print(teleop_interface)
 
     # Load trained policy
-    policy = load_policy_rsl("unitree_go1_rough/2025-07-17_18-39-56/exported/policy.pt")  # Adjust filename
+    policy = load_policy_rsl("go1_locomotion/2025-07-24_13-11-02/exported/policy.pt")  # Adjust filename
     policy = policy.to(env.device).eval()
 
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
@@ -345,7 +350,12 @@ def main():
 
             # Teleop Commands
             keyboard_command = teleop_interface.advance()
-            obs["policy"][:, 9:12] = torch.tensor(keyboard_command)  # Update policy observation with keyboard command
+            if OBS_BASE_VEL:
+                obs["policy"][:, 9:12] = torch.tensor(
+                    keyboard_command
+                )  # Update policy observation with keyboard command
+            else:
+                obs["policy"][:, 6:9] = torch.tensor(keyboard_command)  # Update policy observation with keyboard
 
             # Policy inference
             action = policy(obs["policy"])
