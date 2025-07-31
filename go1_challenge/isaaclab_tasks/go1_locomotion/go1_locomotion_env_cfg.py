@@ -206,8 +206,8 @@ class EventCfg:
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "mass_distribution_params": (-5.0, 5.0),
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk"),
+            "mass_distribution_params": (-1.0, 3.0),
             "operation": "add",
         },
     )
@@ -217,7 +217,7 @@ class EventCfg:
         func=mdp.apply_external_force_torque,
         mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk"),
             "force_range": (0.0, 0.0),
             "torque_range": (-0.0, 0.0),
         },

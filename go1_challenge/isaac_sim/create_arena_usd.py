@@ -41,7 +41,7 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
     ground_collision = UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
 
     #! Create walls
-    wall_height = 0.4
+    wall_height = 1.0
     wall_thickness = 0.2
     half_size = arena_size / 2
     wall_length = arena_size + wall_thickness
@@ -80,7 +80,7 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
     tag_size = 0.2 / 100
     corner_offset = 1.25
     wall_offset = wall_thickness / 2
-    z_height = 0.3
+    z_height = 0.5
 
     tag_transforms = [
         # (tag_id, position, rotation)
@@ -114,6 +114,8 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
 
             # Now add new transform operations
             tag_xform.AddTranslateOp().Set(pos)
+
+            print(f"Tag {tag_id} loc: {pos} with rotation {rot}")
 
             # Apply rotation
             tag_xform.AddRotateXOp().Set(rot[0])

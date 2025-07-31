@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-This script shows how to use a teleoperation device with Isaac Sim.
+This script is to test to Isaac Sim is properly able to receive keyboard inputs.
 
 The teleoperation device is a keyboard device that allows the user to control the robot.
 It is possible to add additional callbacks to it for user-defined operations.

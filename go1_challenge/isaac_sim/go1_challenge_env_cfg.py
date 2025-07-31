@@ -1,3 +1,7 @@
+"""
+Definition of the Go1 Challenge environment configuration for IsaacSim.
+"""
+
 from pathlib import Path
 import torch
 import os
@@ -40,47 +44,6 @@ from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import G
 ##
 # Scene
 ##
-
-
-def create_aruco_tag_configs(tag_size=0.15, post_height=0.3):
-    """Create ArUco tag and post configurations"""
-    # Tag positions on walls - positioned flat against walls
-    tag_positions = [
-        # Corner tags on walls
-        (2.4, 2.4, 0.3, 0, (0.0, 0.0, -0.707, 0.707)),  # ID 0: Top-right corner, facing inward
-        (-2.4, 2.4, 0.3, 1, (0.0, 0.0, 0.707, 0.707)),  # ID 1: Top-left corner, facing inward
-        (-2.4, -2.4, 0.3, 2, (0.0, 0.0, 1.0, 0.0)),  # ID 2: Bottom-left corner, facing inward
-        (2.4, -2.4, 0.3, 3, (0.0, 0.0, 0.0, 1.0)),  # ID 3: Bottom-right corner, facing inward
-        # Mid-wall tags
-        (0.0, 2.4, 0.3, 4, (0.0, 0.0, 1.0, 0.0)),  # ID 4: Top wall center, facing inward
-        (0.0, -2.4, 0.3, 5, (0.0, 0.0, 0.0, 1.0)),  # ID 5: Bottom wall center, facing inward
-    ]
-
-    configs = {}
-
-    for x, y, z, tag_id, rot in tag_positions:
-        # Get the texture path
-        texture_path = os.path.join(os.path.dirname(__file__), "textures", "aruco_tags", f"aruco_tag_{tag_id}.png")
-
-        # Create ArUco tag on wall (no posts needed)
-        configs[f"aruco_tag_{tag_id}"] = AssetBaseCfg(
-            prim_path=f"/World/ArUco_{tag_id}",
-            spawn=sim_utils.CuboidCfg(
-                size=(tag_size, tag_size, 0.001),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_texture=texture_path if os.path.exists(texture_path) else None,
-                    diffuse_color=(1.0, 1.0, 1.0),  # White background if no texture
-                    roughness=0.1,
-                    metallic=0.0,
-                ),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(x, y, z), rot=rot),
-        )
-
-    return configs
 
 
 @configclass
@@ -168,7 +131,6 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
         self.episode_length_s = 60.0
         self.curriculum = None
 
-        # TODO: Set to teleop commands (Do not implement this now)
         self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
         # self.observations.policy.velocity_commands = ObsTerm(func=keyboard_velocity_commands)
 

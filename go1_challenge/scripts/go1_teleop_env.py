@@ -21,6 +21,9 @@ from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
+# Remove AprilTag detection import
+# from go1_challenge.isaac_sim.worlds.tags_loc import TAGS_LOC
+
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Go1 teleoperation with trained policy and keyboard velocity commands.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric API and use USD instead.")
@@ -31,6 +34,11 @@ parser.add_argument(
     help="Path to the trained policy file.",
 )
 parser.add_argument("--visualize_tags", action="store_true", help="Visualize detected AprilTags in a separate window.")
+parser.add_argument(
+    "--teleop",
+    action="store_true",
+    help="Use keyboard teleoperation. If false, use NavController for autonomous navigation.",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -50,6 +58,8 @@ import numpy as np
 import torch
 import carb
 import cv2
+import time
+import os
 
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -57,11 +67,7 @@ from isaaclab.utils.assets import read_file
 from isaacsim.core.utils.viewports import set_camera_view
 from isaaclab.devices import Se2Keyboard
 
-# AprilTag detection
-try:
-    from pyapriltags import Detector
-except ImportError:
-    print("Warning: pyapriltags library not available. Install with: pip install pyapriltags")
+from go1_challenge.navigation import NavController
 
 ##
 # Pre-defined configs
@@ -74,22 +80,14 @@ DEVICE = "cpu"
 NAV_FREQ = 4
 LOCALIZATION_FREQ = 10  # Frequency for localization updates
 
-OBS_BASE_VEL = False
-
-at_detector = Detector(
-    families="tag36h11",
-    nthreads=1,
-    quad_decimate=1.0,
-    quad_sigma=0.0,
-    refine_edges=1,
-    decode_sharpening=0.25,
-    debug=0,
-)
-
 
 def load_policy_rsl(policy_file: str):
-    """Load the trained RSL-RL policy."""
-    policy_dir = PKG_PATH / "logs" / "rsl_rl"  # Adjust path as needed
+    """Load the trained RSL-RL policy.
+
+    Args:
+        policy_file (str): Path to the policy file. Relative to the project root.
+    """
+    policy_dir = PKG_PATH  # / "logs" / "rsl_rl"  # Adjust path as needed
     policy_path: Path = policy_dir / policy_file
     if not policy_path.exists():
         raise FileNotFoundError(f"Policy file '{policy_path}' does not exist.")
@@ -97,7 +95,11 @@ def load_policy_rsl(policy_file: str):
     print(f"[INFO] Loading policy from {policy_path}")
 
     file_bytes = read_file(policy_path)
-    policy = torch.jit.load(file_bytes)
+    try:
+        policy = torch.jit.load(file_bytes)
+
+    except RuntimeError as e:
+        raise RuntimeError(f"Failed to load policy from {policy_path}: {e}. Did you properly export the policy?")
 
     return policy
 
@@ -111,8 +113,7 @@ def load_gym_env() -> ManagerBasedRLEnv:
 
     env_cfg.episode_length_s = 60.0
 
-    if not OBS_BASE_VEL:
-        env_cfg.observations.policy.base_lin_vel = None  # Use null to disable this observation.
+    env_cfg.observations.policy.base_lin_vel = None  # Use null to disable this observation.
 
     env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
@@ -139,138 +140,24 @@ def get_camera_intrinsics(camera_cfg):
     cx = width / 2.0
     cy = height / 2.0
 
-    # Camera intrinsic matrix
-    camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
-
-    # Camera parameters tuple format for pyapriltags: (fx, fy, cx, cy)
+    # Camera parameters tuple format for NavController: (fx, fy, cx, cy)
     camera_params = (fx, fy, cx, cy)
 
-    return camera_matrix, camera_params
+    return camera_params
 
 
-def detect_apriltags(
-    rgb_image: torch.Tensor,
-    camera_params: tuple,
-    tag_size: float = 0.2,
-    tag_family: str = "tag36h11",
-    visualize: bool = False,
-) -> dict:
-    """
-    Detect AprilTags in RGB image and estimate their poses using pyapriltags.
-
-    Args:
-        rgb_image: RGB image tensor from IsaacLab camera (H, W, 3)
-        camera_params: Camera parameters tuple (fx, fy, cx, cy)
-        tag_size: Physical size of tags in meters
-        tag_family: AprilTag family name
-        visualize: Whether to show visualization window
-
-    Returns:
-        Dictionary of detected tags with poses in robot/camera frame
-    """
-
-    try:
-        # --- Format images
-        # Convert tensor to numpy and ensure correct format
-        if isinstance(rgb_image, torch.Tensor):
-            # Convert from tensor to numpy, ensure CPU and correct dtype
-            image_np = rgb_image.detach().cpu().numpy()
-        else:
-            image_np = rgb_image
-
-        # Ensure image is in uint8 format and correct shape
-        if image_np.dtype != np.uint8:
-            # Assuming image is in [0, 1] range, convert to [0, 255]
-            if image_np.max() <= 1.0:
-                image_np = (image_np * 255).astype(np.uint8)
-            else:
-                image_np = image_np.astype(np.uint8)
-
-        # Convert to grayscale for AprilTag detection
-        if len(image_np.shape) == 3:
-            gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = image_np
-
-        # Detect tags with pose estimation
-        tags = at_detector.detect(gray, estimate_tag_pose=True, camera_params=camera_params, tag_size=tag_size)
-
-        if len(tags) == 0:
-            if visualize:
-                # Show image even if no tags detected
-                cv2.imshow("AprilTag Detection", image_np)
-                cv2.waitKey(1)
-            return {}
-
-        detected_tags = {}
-
-        # Create visualization if requested
-        if visualize:
-            # Convert grayscale back to color for visualization
-            vis_image = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
-
-        for tag in tags:
-            tag_id = tag.tag_id
-
-            # Get pose information
-            position = tag.pose_t.flatten()  # Translation vector [x, y, z]
-            rotation_matrix = tag.pose_R  # 3x3 rotation matrix
-
-            # Calculate distance
-            distance = np.linalg.norm(position)
-
-            detected_tags[tag_id] = {
-                "corners": tag.corners.tolist(),
-                "center": tag.center.tolist(),
-                "pose": {
-                    "position": position.tolist(),  # [x, y, z] in camera frame
-                    "rotation_matrix": rotation_matrix.tolist(),
-                },
-                "distance": float(distance),
-                "confidence": float(tag.decision_margin),  # Detection confidence
-            }
-
-            # Add visualization elements
-            if visualize:
-                # Draw tag outline
-                corners = tag.corners.astype(int)
-                for idx in range(len(corners)):
-                    cv2.line(vis_image, tuple(corners[idx - 1]), tuple(corners[idx]), (0, 255, 0), 2)
-
-                # Add tag ID text
-                center = tag.center.astype(int)
-                cv2.putText(
-                    vis_image,
-                    f"ID:{tag_id}",
-                    org=(center[0] - 20, center[1] - 10),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.6,
-                    color=(0, 0, 255),
-                    thickness=2,
-                )
-
-                # Add distance text
-                cv2.putText(
-                    vis_image,
-                    f"{distance:.2f}m",
-                    org=(center[0] - 20, center[1] + 15),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.5,
-                    color=(255, 0, 0),
-                    thickness=1,
-                )
-
-        # Show visualization window
-        if visualize:
-            cv2.imshow("AprilTag Detection", vis_image)
-            cv2.waitKey(1)  # Non-blocking
-
-        print(f"[INFO] Detected {len(detected_tags)} AprilTags: {list(detected_tags.keys())}")
-        return detected_tags
-
-    except Exception as e:
-        print(f"[ERROR] AprilTag detection failed: {e}")
-        return {}
+def get_observation_dict(obs: dict) -> dict:
+    """Convert observation tensor to a dictionary for easier access."""
+    obs_dict = {
+        "base_lin_vel": obs["policy"][:, 0:3].cpu().numpy().flatten(),
+        "base_ang_vel": obs["policy"][:, 3:6].cpu().numpy().flatten(),
+        "projected_gravity": obs["policy"][:, 6:9].cpu().numpy().flatten(),
+        "velocity_commands": obs["policy"][:, 9:12].cpu().numpy().flatten(),
+        "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
+        "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
+        "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
+    }
+    return obs_dict
 
 
 def main():
@@ -279,26 +166,32 @@ def main():
     # Setup environment
     env = load_gym_env()
 
-    # Setup keyboard interface
-    # keyboard_interface = VelocityKeyboardInterface(lin_vel_scale=0.8, ang_vel_scale=0.6)
-    sensitivity_lin = 1.0  # Default sensitivity for keyboard commands
-    sensitivity_ang = 1.0  # Default sensitivity for angular commands
-    teleop_interface = Se2Keyboard(
-        v_x_sensitivity=sensitivity_lin, v_y_sensitivity=sensitivity_lin, omega_z_sensitivity=sensitivity_ang
-    )
+    # --- Setup keyboard interface (only if teleoperation is enabled)
+    if args_cli.teleop:
+        sensitivity_lin = 1.0
+        sensitivity_ang = 1.0
+        teleop_interface = Se2Keyboard(
+            v_x_sensitivity=sensitivity_lin, v_y_sensitivity=sensitivity_lin, omega_z_sensitivity=sensitivity_ang
+        )
 
-    teleop_interface.add_callback("R", env.reset)
-    teleop_interface.add_callback("ESCAPE", quit_cb)
+        teleop_interface.add_callback("R", env.reset)
+        teleop_interface.add_callback("ESCAPE", quit_cb)
 
-    print(teleop_interface)
+        print(teleop_interface)
+        print("\n[INFO] Teleoperation mode enabled. Use WASD+QE to control the robot.")
 
-    # Load trained policy
-    policy = load_policy_rsl("go1_locomotion/2025-07-24_13-11-02/exported/policy.pt")  # Adjust filename
+    else:
+        teleop_interface = None
+        print("\n[INFO] Autonomous navigation mode enabled. NavController will control the robot.")
+
+    # --- Load trained policy
+    policy_file = args_cli.policy
+    policy = load_policy_rsl(policy_file)
     policy = policy.to(env.device).eval()
 
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
 
-    # Reset environment
+    # --- Reset environment
     teleop_interface.reset()
     obs, _ = env.reset()
 
@@ -306,56 +199,60 @@ def main():
     nav_count = 1 / (NAV_FREQ * env.cfg.sim.dt)
     localization_count = 1 / (LOCALIZATION_FREQ * env.cfg.sim.dt)
 
-    # Get camera intrinsics from environment configuration
+    # --- Initialize NavController
     camera_cfg = env.cfg.scene.camera
-    camera_matrix, camera_params = get_camera_intrinsics(camera_cfg)
+    camera_params = get_camera_intrinsics(camera_cfg)
+    nav_controller = NavController(
+        camera_params=camera_params,
+        tag_size=0.16,  # Length of the black square in meters
+        tag_family="tag36h11",
+    )
 
-    print(f"[INFO] Camera intrinsics calculated:")
-    print(f"  Camera matrix:\n{camera_matrix}")
+    print(f"[INFO] NavController initialized:")
     print(f"  Camera params: {camera_params}")
-    print(f"  Image size: {camera_cfg.width}x{camera_cfg.height}")
-    if args_cli.visualize_tags:
-        print(f"[INFO] Tag visualization enabled")
+    print(f"  Tag size: 0.16m")
+    print(f"  Tag family: tag36h11")
 
-    print("\n[INFO] Teleoperation started. Use WASD+QE to control the robot.")
-
+    # --- Main loop
     while simulation_app.is_running():
         with torch.inference_mode():
-            # Navigation loop
+            # Navigation loop - update NavController
             if count % localization_count == 0:
-                # Get camera images
+                # --- Get camera data
                 rgb_data = env.scene["camera"].data.output["rgb"][0, ..., :3]
                 distance_data = env.scene["camera"].data.output["distance_to_image_plane"][0]
 
-                # AprilTag localization using pyapriltags
-                detected_tags = detect_apriltags(
-                    rgb_image=rgb_data,
-                    camera_params=camera_params,  # Use camera params tuple
-                    tag_size=0.2,  # 0.2m tag size as specified
-                    tag_family="tag36h11",
-                    visualize=False,  # args_cli.visualize_tags,  # Add visualization option
-                )
+                obs_dict = get_observation_dict(obs)
 
-                if detected_tags:
-                    print("-------------------------------")
-                    print(f"[LOCALIZATION] Detected tags: {list(detected_tags.keys())}")
-                    for tag_id, tag_data in detected_tags.items():
-                        pos = tag_data["pose"]["position"]
-                        dist = tag_data["distance"]
-                        conf = tag_data["confidence"]
-                        print(
-                            f"  Tag {tag_id}: pos=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}), dist={dist:.2f}m, conf={conf:.2f}"
-                        )
-                    print("-------------------------------")
+                # Prepare observations for NavController
+                nav_observations = {
+                    "base_ang_vel": obs["policy"][:, 3:6].cpu().numpy().flatten(),
+                    "projected_gravity": obs["policy"][:, 6:9].cpu().numpy().flatten(),
+                    "velocity_commands": obs["policy"][:, 9:12].cpu().numpy().flatten(),
+                    "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
+                    "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
+                    "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
+                    "rgb_image": env.scene["camera"].data.output["rgb"][0, ..., :3]
+                    if env.scene.get("camera")
+                    else None,
+                }
 
-            # Teleop Commands
-            keyboard_command = teleop_interface.advance()
-            if OBS_BASE_VEL:
-                obs["policy"][:, 9:12] = torch.tensor(
-                    keyboard_command
-                )  # Update policy observation with keyboard command
+                # Update NavController with observations
+                nav_controller.update(nav_observations)
+
+            # Get velocity command based on mode
+            if args_cli.teleop and teleop_interface is not None:
+                # Use keyboard commands for teleoperation
+                command = teleop_interface.advance()
+                # print(f"[TELEOP] Keyboard command: {command}")
+
             else:
-                obs["policy"][:, 6:9] = torch.tensor(keyboard_command)  # Update policy observation with keyboard
+                # Use NavController commands for autonomous navigation
+                command = nav_controller.get_velocity_command()
+                print(f"[NAV] NavController command: {command}")
+
+            # Update policy observation with velocity command
+            obs["policy"][:, 6:9] = torch.tensor(command)
 
             # Policy inference
             action = policy(obs["policy"])
@@ -364,10 +261,6 @@ def main():
             obs, _, _, _, _ = env.step(action)
 
             count += 1
-
-    # Cleanup visualization window
-    if args_cli.visualize_tags:
-        cv2.destroyAllWindows()
 
     env.close()
 
