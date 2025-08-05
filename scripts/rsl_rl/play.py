@@ -25,6 +25,7 @@ parser.add_argument("--use_pretrained_checkpoint", action="store_true", help="Us
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument("--record_data", action="store_true", default=False, help="Record data during testing.")
 parser.add_argument("--data_length", type=int, default=3000, help="Length of the recorded data.")
+parser.add_argument("--jit_compile", action="store_true", default=False, help="Compile the JIT compiler.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -52,7 +53,7 @@ from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit
 from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 
 # import gym envs
@@ -65,9 +66,7 @@ import go1_challenge.isaaclab_tasks  # noqa: F401
 def main():
     """Play with RSL-RL agent."""
     # parse configuration
-    env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
-    )
+    env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric)
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
     # specify directory for logging experiments
@@ -125,72 +124,71 @@ def main():
         # version 2.2 and below
         policy_nn = ppo_runner.alg.actor_critic
 
-    # export policy to onnx/jit
-    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(
-        policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.onnx"
-    )
+    # export policy to jit
+    if args_cli.jit_compile:
+        export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
+        export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
 
-    dt = env.unwrapped.step_dt
+    else:
+        dt = env.unwrapped.step_dt
 
-    obs_list = []
-    action_list = []
-    rew_list = []
-    done_list = []
+        obs_list = []
+        action_list = []
+        rew_list = []
+        done_list = []
 
-    # reset environment
-    obs, _ = env.get_observations()
-    timestep = 0
-    # simulate environment
-    while simulation_app.is_running() and (not args_cli.record_data or len(obs_list) < args_cli.data_length):
-        start_time = time.time()
-        # run everything in inference mode
-        with torch.inference_mode():
-            # agent stepping
-            actions = policy(obs)
-            # env stepping
-            obs_next, rew, done, info = env.step(actions)
+        # reset environment
+        obs, _ = env.get_observations()
+        timestep = 0
+        # simulate environment
+        while simulation_app.is_running() and (not args_cli.record_data or len(obs_list) < args_cli.data_length):
+            start_time = time.time()
+            # run everything in inference mode
+            with torch.inference_mode():
+                # agent stepping
+                actions = policy(obs)
+                # env stepping
+                obs_next, rew, done, info = env.step(actions)
 
-            if args_cli.record_data:
-                obs_list.append(obs.clone())
-                action_list.append(actions.clone())
-                rew_list.append(torch.as_tensor(rew, device=obs.device))
-                done_list.append(torch.as_tensor(done, device=obs.device, dtype=torch.bool))
+                if args_cli.record_data:
+                    obs_list.append(obs.clone())
+                    action_list.append(actions.clone())
+                    rew_list.append(torch.as_tensor(rew, device=obs.device))
+                    done_list.append(torch.as_tensor(done, device=obs.device, dtype=torch.bool))
 
-            obs = obs_next
+                obs = obs_next
 
-        if args_cli.video:
-            timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
-                break
+            if args_cli.video:
+                timestep += 1
+                # Exit the play loop after recording one video
+                if timestep == args_cli.video_length:
+                    break
 
-        # time delay for real-time evaluation
-        sleep_time = dt - (time.time() - start_time)
-        if args_cli.real_time and sleep_time > 0:
-            time.sleep(sleep_time)
+            # time delay for real-time evaluation
+            sleep_time = dt - (time.time() - start_time)
+            if args_cli.real_time and sleep_time > 0:
+                time.sleep(sleep_time)
 
-    if args_cli.record_data:
-        obs_tensor = torch.stack(obs_list)         # [time, batch, obs_dim]
-        action_tensor = torch.stack(action_list)   # [time, batch, act_dim]
-        reward_tensor = torch.stack(rew_list)      # [time, batch]
-        done_tensor = torch.stack(done_list)       # [time, batch]
+        if args_cli.record_data:
+            obs_tensor = torch.stack(obs_list)         # [time, batch, obs_dim]
+            action_tensor = torch.stack(action_list)   # [time, batch, act_dim]
+            reward_tensor = torch.stack(rew_list)      # [time, batch]
+            done_tensor = torch.stack(done_list)       # [time, batch]
 
-        trajectories_dir = os.path.join(log_dir, "trajectories")
-        os.makedirs(trajectories_dir, exist_ok=True)
+            trajectories_dir = os.path.join(log_dir, "trajectories")
+            os.makedirs(trajectories_dir, exist_ok=True)
 
-        save_path = os.path.join(trajectories_dir, "play_trajectory.pt")
-        torch.save(
-            {
-                "observations": obs_tensor,
-                "actions": action_tensor,
-                "rewards": reward_tensor,
-                "dones": done_tensor,
-            },
-            save_path,
-        )
-        print(f"[INFO] Trajectory saved to: {save_path}")
+            save_path = os.path.join(trajectories_dir, "play_trajectory.pt")
+            torch.save(
+                {
+                    "observations": obs_tensor,
+                    "actions": action_tensor,
+                    "rewards": reward_tensor,
+                    "dones": done_tensor,
+                },
+                save_path,
+            )
+            print(f"[INFO] Trajectory saved to: {save_path}")
 
     # close the simulator
     env.close()
