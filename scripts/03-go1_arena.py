@@ -74,7 +74,7 @@ from go1_challenge.navigation import NavController
 ##
 from go1_challenge.isaaclab_tasks.go1_locomotion.go1_challenge_env_cfg import Go1ChallengeSceneCfg
 
-PKG_PATH = Path(__file__).parent.parent.parent
+PKG_PATH = Path(__file__).parent.parent
 DEVICE = "cpu"
 
 NAV_FREQ = 4
@@ -87,8 +87,8 @@ def load_policy_rsl(policy_file: str):
     Args:
         policy_file (str): Path to the policy file. Relative to the project root.
     """
-    policy_dir = PKG_PATH  # / "logs" / "rsl_rl"  # Adjust path as needed
-    policy_path: Path = policy_dir / policy_file
+    # policy_dir =   # / "logs" / "rsl_rl"  # Adjust path as needed
+    policy_path: Path = PKG_PATH / policy_file
     if not policy_path.exists():
         raise FileNotFoundError(f"Policy file '{policy_path}' does not exist.")
 
@@ -178,7 +178,7 @@ def main():
         teleop_interface.add_callback("ESCAPE", quit_cb)
 
         print(teleop_interface)
-        print("\n[INFO] Teleoperation mode enabled. Use WASD+QE to control the robot.")
+        print("\n[INFO] Teleoperation mode enabled. Use Arrows+ZX to control the robot.")
 
     else:
         teleop_interface = None
@@ -232,9 +232,7 @@ def main():
                     "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
                     "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
                     "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
-                    "rgb_image": env.scene["camera"].data.output["rgb"][0, ..., :3]
-                    if env.scene.get("camera")
-                    else None,
+                    "rgb_image": env.scene["camera"].data.output["rgb"][0, ..., :3],
                 }
 
                 # Update NavController with observations

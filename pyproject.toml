@@ -13,6 +13,7 @@ authors = [{ name = "MRSS 2025 Team" }]
 
 classifiers = ["Programming Language :: Python :: 3.10"]
 dependencies = [
+  "pyapriltags",
   # "isaaclab",
   # "isaaclab_tasks",
   # "isaaclab_rl",

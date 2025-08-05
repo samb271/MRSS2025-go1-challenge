@@ -2,6 +2,7 @@
 
 This repository contains the code for the Go1 Locomotion Challenge, involving training a Go1 robot to walk using RL. To do so, we will use Isaac Sim [(https://github.com/isaac-sim/IsaacSim/)](https://github.com/isaac-sim/IsaacSim/) for simulation, Isaac Lab [(https://github.com/isaac-sim/IsaacLab)](https://github.com/isaac-sim/IsaacLab) for the Go1 robot model, and the RSL RL library [(https://github.com/leggedrobotics/rsl_rl/)](https://github.com/leggedrobotics/rsl_rl/) for RL framework.
 
+
 ## The Challenge
 The core of the competition is to train a robust (low-level) walking policy in simulation, and then perform sim-to-real on an actual Unitree Go1 quadruped robot. You will achieve this thanks to the Isaac Lab framework. 
 
@@ -15,6 +16,8 @@ On Friday, the final challenge will evaluate your walking policy on a series of 
 Good luck everyone!
 
 ## Installation
+If you have any problems with the installation, post your questions in the discord channel. 
+
 ### 1. Isaac Sim 4.5.0
 **Isaac Sim 4.5.0** is used to simulate the Go1 and environments physics. 
 
@@ -153,14 +156,14 @@ To play the trained policy, you can run the following command:
 ```bash
 python scripts/01-play.py --load_run=RUN_NAME
 ```
+Other args:
+- `--load_run` specifies the run to load, which should be the name of the folder where the trained policy is saved. 
+- `--num_envs` specifies the number of environments to run in parallel.
+- `--headless` runs the simulation without a GUI.
 
-`--task` specifies the task to play, which in this case is `MRSS-Velocity-Go1-Play-v0`. 
-
-`--load_run` specifies the run to load, which should be the name of the folder where the trained policy is saved. 
-
-`--num_envs` specifies the number of environments to run in parallel.
-
-`--headless` runs the simulation without a GUI.
+You have two different options to load checkpoints.
+- `--load_run 2025-08-05_15-16-27`: This runs the latest policy in that run
+- `--checkpoint path/to/policy/my_policy.pt`: Loads the policy from a file
 
 > [!note]
 > This script also exports the policy as `jit`. 
@@ -169,8 +172,7 @@ python scripts/01-play.py --load_run=RUN_NAME
 For the rest of the parameters, you can refer to the `play.py` script.
 
 > [!Note]
-> The play version of the task has less environments (defaults to 50) and smaller terrain to reduce memory usage. If it's still too
-> intense for your laptop, reduce it more with `--num_envs=10`.
+> The play version of the task has less environments (defaults to 50) and smaller terrain to reduce memory usage. If it's still too much for your laptop, reduce it with `--num_envs=10`.
 
 This script also exports your policy to a `jit` file. This is necessary to load it on the robot. The policy is exported to 
 `logs/rsl_rl/<run_name>/<timestamps>/exported/policy.pt`.
@@ -182,30 +184,37 @@ After making sure your policy looks good in simulation, you can test it on the r
 ## Challenge 2 - Robust Walking
 The next step is to train a policy that's also able to perform well on uneven terrain and across obstacles. 
 
-You can test how your policy is doing in simulation by changing the terrain level
-TODO
+You can test how your policy is doing in simulation by changing the terrain level. The terrain configuration is defined
+in `go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg.ROUGH_TERRAINS_CFG. You can try changing the 
+proportions of the different difficulties in the configuration file (under `env.terrain.terrain_generator.sub_terrains`)
 
-How can you make it more robust? 
 
-You can 
+You can also test your policy in the arena with:
+```bash
+python scripts/03-go1_arena.py --teleop --policy logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt
+```
+
+You can control the robot with:
+- Arrows: Linear velocity
+- `Z & X`: Yaw.
+- `R`: Reset.
+- `ESC`: Close the sim. 
 
 
 ## Challenge 3 - Walking alone
 ...
 
 
-# MRSS 2025 --- Go1 Challenge
-IsaacSim project for the MRSS 2025 Go1 Challenge.
-
+## Code Overview
 Project Structure
 ```
 ├── config
 ├── go1_challenge
+│   ├── arena_assets
 │   ├── isaaclab_tasks
-│   ├── isaac_sim
-│   ├── ros_pkg
+│   ├── navigation
+│   ├── utils
 │   └── scripts
-├── policies
 └── scripts
     ├── camera
     ├── rsl_rl
@@ -214,62 +223,25 @@ Project Structure
 
 - `config`: `.yaml` configuration files for the environment and training parameters
 - `go1_challenge`: Implementation of the `gym` environment
-- `scripts`:
+- `scripts`
 
 
-## Go1_challenge
-## `isaac_sim`
+### Go1_challenge - Python Package
+## `arena_assets`
 Assets and scripts for the generation of the competition arena.
 
-This is where `Go1ChallengeSceneCfg`, the competition environment is defined. 
 
 ## `isaaclab_tasks`
-Implementation of the IsaacLab environments. 
-
-The Isaac Lab environment are implemented here as manager-based environments. They are modification of the [Isaac-Velocity-Rough-Unitree-Go1-v0](https://github.com/isaac-sim/IsaacLab/blob/main/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go1/rough_env_cfg.py) environment. 
+The Isaac Lab environment are implemented here as manager-based environments. They are modifications of the [Isaac-Velocity-Rough-Unitree-Go1-v0](https://github.com/isaac-sim/IsaacLab/blob/main/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go1/rough_env_cfg.py) environment. 
 
 
-`go1_locomotion_env_cfg.py`
-Implementation of the environment using configuration files. 
+- `go1_locomotion_env_cfg.py`: Implementation of the environment using configuration files. 
 
-`mdp`
-Implementation of the functions required in the mdp like computing the reward terms, reset conditions and terrain 
+- `go1_challenge_env_cfg.py`: Implementation of the challenge environment. 
+
+- `mdp`: Implementation of the functions required in the mdp like computing the reward terms, reset conditions and terrain 
 difficulty.
 
-`agents`
-Configuration of the *[rsl-rl](https://github.com/leggedrobotics/rsl_rl)* agent.
+- `agents`: Configuration of the *[rsl-rl](https://github.com/leggedrobotics/rsl_rl)* agent.
 
 
-## Usage
-Training
-```
-train.py --config=...
-```
-
-Play the policies
-You can test how the policy is performing in the environment
-```
-play.py --config=
-```
-
-
-Test in the challenge env
-```
-go1_nav_env.py --level=1  --policy=...
-```
-
-
-## Tags
-Generated with https://chev.me/arucogen/
-
-## Installation
-Dependencies (to add in the pyproject)
-- pyapriltags
-<!-- - opencv-python -->
-
-
-1. Install Isaac Sim 4.5.0 from binaries
-   https://docs.isaacsim.omniverse.nvidia.com/4.5.0/installation/install_workstation.html#workstation-setup
-
-2. Install Isaac Lab
-3. 
