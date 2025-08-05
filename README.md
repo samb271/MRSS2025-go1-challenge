@@ -56,7 +56,7 @@ If you encounter any installation problems, please post your questions in the Di
 > [!NOTE] 
 > Isaac Lab also supports installation from `pip`. However, this has NOT been tested with this project. You can try it, but we won't be able to provide support if you follow this approach.
 
-> [!WARNING] Using zsh?
+> [!WARNING]
 > The installation script doesn't work when called from `zsh` (see [\[Bug Report\] Conda environment not being setup correctly for ZSH · Issue #703 · isaac-sim/IsaacLab](https://github.com/isaac-sim/IsaacLab/issues/703)).
 > We recommend running with `bash`.
 > 
@@ -137,12 +137,14 @@ Here are some plots you should expect to see in the WandB dashboard:
 
 Checkpoints will be saved under `logs/rsl_rl/<run_name>/<timestamp>`.
 
-> [!INFO] Continue Training
+> [!INFO] 
+> **Continue Training**
 > You can continue training by loading either a run name or a path to a checkpoint:
 > - To load an RSL-RL checkpoint: `--load_run 2025-07-24_13-11-02`. This loads the best policy from the run. The run must be in the RSL log directory.
 > - To load a specific policy: `--checkpoint path_to_policy/policy_to_load.pt`
 
-> [!INFO] Training Configuration
+> [!INFO]
+> **Training Configuration**
 > Here are some tips to improve your policy:
 > - Modify the terrain settings
 > - Adjust the reward coefficients
@@ -177,6 +179,7 @@ The script exports your policy to a `jit` file at `logs/rsl_rl/<run_name>/<times
 After verifying your policy works well in simulation, you can test it on the real robot! Send your exported policy (e.g., `policy.pt`) to your robot supervisor.
 
 ## Challenge 2 - Navigate Obstacles
+*This part is in progress*
 
 Train a policy that performs well on uneven terrain and across obstacles.
 
@@ -230,18 +233,3 @@ Isaac Lab environments implemented as manager-based environments. These are modi
 - `go1_challenge_env_cfg.py`: Challenge environment implementation
 - `mdp`: Implementation of MDP functions including reward terms, reset conditions, and terrain difficulty
 - `agents`: Configuration for the [RSL-RL](https://github.com/leggedrobotics/rsl_rl) agent
-
-## `isaaclab_tasks`
-The Isaac Lab environment are implemented here as manager-based environments. They are modifications of the [Isaac-Velocity-Rough-Unitree-Go1-v0](https://github.com/isaac-sim/IsaacLab/blob/main/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/go1/rough_env_cfg.py) environment. 
-
-
-- `go1_locomotion_env_cfg.py`: Implementation of the environment using configuration files. 
-
-- `go1_challenge_env_cfg.py`: Implementation of the challenge environment. 
-
-- `mdp`: Implementation of the functions required in the mdp like computing the reward terms, reset conditions and terrain 
-difficulty.
-
-- `agents`: Configuration of the *[rsl-rl](https://github.com/leggedrobotics/rsl_rl)* agent.
-
-
