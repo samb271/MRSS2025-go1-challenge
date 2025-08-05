@@ -53,7 +53,7 @@ from isaacsim.core.utils.viewports import set_camera_view
 ##
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg import UnitreeGo1RoughEnvCfg
 from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import Go1LocomotionEnvCfg_PLAY
-from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg, constant_commands
+from go1_challenge.isaaclab_tasks.go1_locomotion.go1_challenge_env_cfg import Go1ChallengeSceneCfg, constant_commands
 
 
 PKG_PATH = Path(__file__).parent.parent.parent

@@ -13,13 +13,13 @@ import yaml
 
 from isaaclab.app import AppLauncher
 
-# local imports
-import cli_args  # isort: skip
-
+from go1_challenge.utils import rsl_cli_args
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--config", type=str, default=None, required=True, help="Path to YAML config file with Hydra parameters.")
+parser.add_argument(
+    "--config", type=str, default=None, required=True, help="Path to YAML config file with Hydra parameters."
+)
 args_cli, hydra_args = parser.parse_known_args()
 
 # load parameters from YAML config file if provided
@@ -136,7 +136,7 @@ torch.backends.cudnn.benchmark = False
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with RSL-RL agent."""
     # override configurations with non-hydra CLI arguments
-    agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
+    agent_cfg = rsl_cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here

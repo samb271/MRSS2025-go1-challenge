@@ -8,6 +8,7 @@ wandb
 # Logs
 logs/
 outputs/
+policies/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

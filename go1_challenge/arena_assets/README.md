@@ -1,5 +1,5 @@
 # Go1 Challenge - Isaac Sim environment
-Creation of the competition environment here. 
+Creation of the assets for the arena environment here. 
 
 Notes on how the env is created:
 

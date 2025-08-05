@@ -12,7 +12,7 @@ import argparse
 from isaaclab.app import AppLauncher
 
 # local imports
-import cli_args  # isort: skip
+import go1_challenge.utils.rsl_cli_args as rsl_cli_args  # isort: skip
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
@@ -22,7 +22,7 @@ parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--task", type=str, default="MRSS-Velocity-Go1-v0", help="Name of the task.")
 parser.add_argument(
     "--use_pretrained_checkpoint", action="store_true", help="Use the pre-trained checkpoint from Nucleus."
 )
@@ -31,7 +31,7 @@ parser.add_argument("--record_data", action="store_true", default=False, help="R
 parser.add_argument("--data_length", type=int, default=3000, help="Length of the recorded data.")
 parser.add_argument("--jit_compile", action="store_true", default=False, help="Compile the JIT compiler.")
 # append RSL-RL cli arguments
-cli_args.add_rsl_rl_args(parser)
+rsl_cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -73,11 +73,7 @@ def main():
     env_cfg = parse_env_cfg(
         args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
     )
-    agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
-
-    # TODO
-    # remove linear base vel observation
-    env_cfg.observations.policy.base_lin_vel = None  # Use null to disable this observation.
+    agent_cfg: RslRlOnPolicyRunnerCfg = rsl_cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)

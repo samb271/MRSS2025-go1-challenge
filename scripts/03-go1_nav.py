@@ -10,7 +10,7 @@ for a trained RSL-RL policy in an arena with ArUco tags.
 .. code-block:: bash
 
     # Usage
-    ./isaaclab.sh -p go1_challenge/scripts/go1_teleop_env.py
+    python go1_challenge/scripts/03-go1_nav.py
 
 """
 
@@ -72,7 +72,7 @@ from go1_challenge.navigation import NavController
 ##
 # Pre-defined configs
 ##
-from go1_challenge.isaac_sim.go1_challenge_env_cfg import Go1ChallengeSceneCfg
+from go1_challenge.isaaclab_tasks.go1_locomotion.go1_challenge_env_cfg import Go1ChallengeSceneCfg
 
 PKG_PATH = Path(__file__).parent.parent.parent
 DEVICE = "cpu"

@@ -1,5 +1,6 @@
 """
-Definition of the Go1 Challenge environment configuration for IsaacSim.
+Definition of the Go1 Challenge environment configuration for IsaacSim. This environment is designed to test the Go1
+locomotion policy in the arena with obstacles and ArUco tags.
 """
 
 from pathlib import Path
@@ -55,7 +56,7 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
         super().__post_init__()
 
         # -- Arena: Use custom USD file
-        arena_usd_path = Path(__file__).parent / "assets" / "arena_5x5.usd"
+        arena_usd_path = Path(__file__).parent.parent.parent / "arena_assets" / "arena_5x5.usd"
 
         if not arena_usd_path.exists():
             raise FileNotFoundError(f"Arena USD file not found: {arena_usd_path}")
