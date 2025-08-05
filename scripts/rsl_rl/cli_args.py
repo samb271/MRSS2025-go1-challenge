@@ -81,7 +81,7 @@ def update_rsl_rl_cfg(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli: argparse.Name
     if agent_cfg.logger in {"wandb", "neptune"} and args_cli.log_project_name:
         agent_cfg.wandb_project = args_cli.log_project_name
         agent_cfg.neptune_project = args_cli.log_project_name
-    if args_cli.algorithm is not None:
+    if hasattr(args_cli, "algorithm") and args_cli.algorithm is not None:
         for k, v in args_cli.algorithm.items():
             if hasattr(agent_cfg.algorithm, k):
                 setattr(agent_cfg.algorithm, k, v)

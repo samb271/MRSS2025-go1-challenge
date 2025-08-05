@@ -16,19 +16,15 @@ import cli_args  # isort: skip
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
+parser.add_argument("--video", action="store_true", default=False, help="Record videos during testing.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
-parser.add_argument(
-    "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
-)
+parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations.")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument(
-    "--use_pretrained_checkpoint",
-    action="store_true",
-    help="Use the pre-trained checkpoint from Nucleus.",
-)
+parser.add_argument("--use_pretrained_checkpoint", action="store_true", help="Use the pre-trained checkpoint from Nucleus.")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument("--record_data", action="store_true", default=False, help="Record data during testing.")
+parser.add_argument("--data_length", type=int, default=3000, help="Length of the recorded data.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -138,18 +134,32 @@ def main():
 
     dt = env.unwrapped.step_dt
 
+    obs_list = []
+    action_list = []
+    rew_list = []
+    done_list = []
+
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
     # simulate environment
-    while simulation_app.is_running():
+    while simulation_app.is_running() and (not args_cli.record_data or len(obs_list) < args_cli.data_length):
         start_time = time.time()
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
             # env stepping
-            obs, _, _, _ = env.step(actions)
+            obs_next, rew, done, info = env.step(actions)
+
+            if args_cli.record_data:
+                obs_list.append(obs.clone())
+                action_list.append(actions.clone())
+                rew_list.append(torch.as_tensor(rew, device=obs.device))
+                done_list.append(torch.as_tensor(done, device=obs.device, dtype=torch.bool))
+
+            obs = obs_next
+
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
@@ -160,6 +170,27 @@ def main():
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
+
+    if args_cli.record_data:
+        obs_tensor = torch.stack(obs_list)         # [time, batch, obs_dim]
+        action_tensor = torch.stack(action_list)   # [time, batch, act_dim]
+        reward_tensor = torch.stack(rew_list)      # [time, batch]
+        done_tensor = torch.stack(done_list)       # [time, batch]
+
+        trajectories_dir = os.path.join(log_dir, "trajectories")
+        os.makedirs(trajectories_dir, exist_ok=True)
+
+        save_path = os.path.join(trajectories_dir, "play_trajectory.pt")
+        torch.save(
+            {
+                "observations": obs_tensor,
+                "actions": action_tensor,
+                "rewards": reward_tensor,
+                "dones": done_tensor,
+            },
+            save_path,
+        )
+        print(f"[INFO] Trajectory saved to: {save_path}")
 
     # close the simulator
     env.close()
