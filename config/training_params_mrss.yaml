@@ -1,0 +1,90 @@
+task: MRSS-Velocity-Go1-v0  # Name of the task.  `Isaac-Velocity-Rough-Unitree-Go1-v0` `Isaac-Velocity-Flat-Unitree-Go1-v0`
+seed: 1 # Performance should be somewhat consistent across seeds but pls verify
+max_iterations: 1500  # Adjust this to train for longer: 1.5k should give you a working policy for rough terrain
+video: false  # Record videos during training.
+video_length: 10  # Length of the recorded video (in steps).
+video_interval: 10  # Interval between video recordings (in steps).
+headless: true  # Run simulation without rendering a GUI (faster, better for training on servers)
+
+#experiment_name: EXPERIMENT_NAME  # Name of the experiment folder where logs will be stored.
+run_name: mrss_no_base_lin_vel  # Run name suffix to the log directory.
+resume: false  # Whether to resume from a checkpoint.
+#load_run: LOAD_RUN   # Name of the run folder to resume from.
+#checkpoint: CHECKPOINT  # Checkpoint file to resume from.
+logger: wandb  # Logger module to use. {neptune, wandb, tensorboard}
+log_project_name: MRSS25  # Name of the logging project when using wandb or neptune.
+
+env:
+  scene:
+    num_envs: 4096  # Number of environments to generate terrain for and run in parallel.
+    terrain:
+      max_init_terrain_level: 5  # Maximum initial difficulty level of terrains for curriculum learning
+      physics_material:
+        compliant_contact_damping: 0.0  # Damping used in compliant contact models
+        compliant_contact_stiffness: 0.0  # Stiffness used in compliant contact models
+        dynamic_friction: 1.0  # Coefficient of dynamic friction for contact
+        friction_combine_mode: 'multiply'  # How friction values from two surfaces are combined
+        improve_patch_friction: True  # Use improved patch-based friction model if available
+        restitution: 0.0  # Bounciness of surfaces on contact
+        restitution_combine_mode: 'multiply'  # How restitution values are combined during contact
+        static_friction: 1.0  # Coefficient of static friction
+      terrain_generator:
+        border_height: 1.0  # Height of border around the terrain patch
+        border_width: 20.0  # Width of border around the terrain patch
+        cache_dir: '/tmp/isaaclab/terrains'  # Directory to store or load cached terrain data
+        curriculum: True  # Enable terrain difficulty progression over time
+        difficulty_range: [ 0.0, 1.0 ]  # Range of terrain difficulties to sample from
+        horizontal_scale: 0.1  # Horizontal scaling factor for terrain features
+        num_cols: 20  # Number of terrain columns (patches) in the scene
+        num_rows: 10  # Number of terrain rows (patches) in the scene
+        size: [ 8.0, 8.0 ]  # Size of each terrain patch (meters)
+        slope_threshold: 0.75  # Max slope allowed for terrain generation
+        use_cache: False  # Use cached terrains or regenerate every time
+        vertical_scale: 0.005  # Vertical scaling factor for heightmap features
+  rewards:
+    action_rate_l2:
+      weight: -0.1  # Penalty for rapid changes in actions (encourages smoothness)
+    ang_vel_xy_l2:
+      weight: -0.05  # Penalty for angular velocity in x and y directions (helps stability)
+    dof_acc_l2:
+      weight: -2.5e-07  # Penalty for joint accelerations (encourages smoother motion)
+    dof_pos_limits:
+      weight: 0.0  # Penalty for exceeding joint limits (disabled here)
+    dof_torques_l2:
+      weight: -0.0002  # Penalty for large joint torques (encourages energy efficiency)
+    feet_air_time:
+      weight: 0.01  # Reward for time feet spend in the air (encourages stepping/gait)
+    flat_orientation_l2:
+      weight: 0.0  # Penalty for orientation deviation from flat (disabled here)
+    lin_vel_z_l2:
+      weight: -2.0  # Penalty for vertical (z-axis) linear velocity (encourages flat motion)
+    track_ang_vel_z_exp:
+      weight: 0.75  # Reward for matching desired angular velocity around z-axis (yaw control)
+    track_lin_vel_xy_exp:
+      weight: 1.5  # Reward for matching desired linear velocity in x-y plane
+  events:
+    add_base_mass:
+      params:
+        mass_distribution_params: [ -1.0, 3.0 ]  # Range for randomizing the base mass
+    base_external_force_torque:
+      params:
+        force_range: [ 0.0, 0.0 ]  # Range for randomizing the external force applied to the base
+        torque_range: [ 0.0, 0.0 ]  # Range for randomizing the external torque applied to the base
+
+algorithm:
+  class_name: 'PPO'  # Name of the RL algorithm to use (Proximal Policy Optimization)
+  clip_param: 0.2  # Clipping parameter for PPO objective
+  desired_kl: 0.01  # Target KL divergence between old and new policies
+  entropy_coef: 0.01  # Coefficient for entropy bonus (encourages exploration)
+  gamma: 0.99  # Discount factor for future rewards
+  lam: 0.95  # GAE lambda parameter for bias-variance tradeoff
+  learning_rate: 0.001  # Initial learning rate for optimizer
+  max_grad_norm: 1.0  # Maximum gradient norm for clipping
+  normalize_advantage_per_mini_batch: False  # Whether to normalize advantages per mini-batch
+  num_learning_epochs: 5  # Number of passes over data per training iteration
+  num_mini_batches: 4  # Number of mini-batches per epoch
+  rnd_cfg: null  # Configuration for Random Network Distillation (not used here)
+  schedule: 'adaptive'  # Learning rate schedule type (adaptive vs fixed)
+  symmetry_cfg: null  # Optional symmetry loss configuration (not used here)
+  use_clipped_value_loss: True  # Use value function clipping in PPO
+  value_loss_coef: 1.0  # Coefficient for value function loss
