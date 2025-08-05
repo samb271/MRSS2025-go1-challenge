@@ -1,3 +1,48 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "go1_challenge"
+version = "0.1.0"
+description = "Go1 Challenge for MRSS 2025"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "MRSS 2025 Team" }]
+
+classifiers = ["Programming Language :: Python :: 3.10"]
+dependencies = [
+  "pyapriltags",
+  # "isaaclab",
+  # "isaaclab_tasks",
+  # "isaaclab_rl",
+  # # "rsl_rl",
+  # "gymnasium",
+  # "torch",
+  # "numpy",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "flake8", "mypy", "pillow", "cairosvg"]
+
+# [project.urls]
+# Homepage = "https://github.com/your-org/MRSS2025"
+# Repository = "https://github.com/your-org/MRSS2025"
+# Documentation = "https://github.com/your-org/MRSS2025"
+# "Bug Tracker" = "https://github.com/your-org/MRSS2025/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["go1_challenge*", "scripts*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+go1_challenge = ["*.yaml", "*.yml", "*.json", "*.xml", "*.urdf", "*.usd"]
+
+[project.scripts]
+go1_challenge_play = "scripts.rsl_rl.play:main"
+
 # MARK: ruff
 [tool.ruff]
 line-length = 120
@@ -7,7 +52,7 @@ target-version = "py310"
 # See https://beta.ruff.rs/docs/rules/
 select = ["E", "F", "B", "UP", "C90", "RUF"]
 # E402: Ignore module level import not at top of file
-ignore = ["E402"]
+ignore = ["E402", "F541"]
 
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
@@ -16,3 +61,18 @@ max-complexity = 15
 # MARK: black
 [tool.black]
 line-length = 120
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
