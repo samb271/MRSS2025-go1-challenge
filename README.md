@@ -32,7 +32,7 @@ Your system must meet Isaac Sim's [minimum hardware requirements](https://docs.i
 
 Other Linux distributions and Windows may work but are not officially supported.
 
-If your are not able to install the project on your own machine, the MILA will provide access to some computers.
+If your are not able to install the project on your own machine, MILA will provide access to some computers.
 
 ## Installation
 
