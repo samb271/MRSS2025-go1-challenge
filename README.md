@@ -19,7 +19,23 @@ On Friday, the final challenge will evaluate your walking policy across three ti
 
 Good luck everyone!
 
+## System Requirements
+
+The main requirement is being able to run Isaac Sim and Isaac Lab. If you can successfully install and run these frameworks, your system should be compatible with this project.
+
+**Recommended Operating System:** Ubuntu 22.04 LTS (this is what was used for testing and development)
+
+Your system must meet Isaac Sim's [minimum hardware requirements](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/installation/requirements.html#system-requirements), which include:
+- NVIDIA RTX GPU (required for physics simulation)
+- Sufficient RAM and storage
+- Compatible NVIDIA drivers
+
+Other Linux distributions and Windows may work but are not officially supported.
+
+If your are not able to install the project on your own machine, the MILA will provide access to some computers.
+
 ## Installation
+
 
 If you encounter any installation problems, please post your questions in the Discord channel.
 
@@ -187,7 +203,7 @@ You can test your policy's performance in simulation by changing the terrain lev
 
 You can also test your policy in the arena with:
 ```bash
-python scripts/03-go1_arena.py --teleop --policy logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt
+python scripts/03-go1_arena.py --teleop --level 1 --policy logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt
 ```
 
 Robot controls:
@@ -195,6 +211,15 @@ Robot controls:
 - **Z & X**: Yaw rotation
 - **R**: Reset
 - **ESC**: Close simulation
+
+There are three levels of increasing difficulty:
+- 1: No obstacles, flat ground
+- 2: Obstacles, flat ground
+- 3: Obstacles, rough ground
+
+The level can be specified via the `--level` arg.  
+
+
 
 ## Challenge 3 - Vision-Based Navigation
 
