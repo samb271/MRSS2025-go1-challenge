@@ -19,7 +19,23 @@ On Friday, the final challenge will evaluate your walking policy across three ti
 
 Good luck everyone!
 
+## System Requirements
+
+The main requirement is being able to run Isaac Sim and Isaac Lab. If you can successfully install and run these frameworks, your system should be compatible with this project.
+
+**Recommended Operating System:** Ubuntu 22.04 LTS (this is what was used for testing and development)
+
+Your system must meet Isaac Sim's [minimum hardware requirements](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/installation/requirements.html#system-requirements), which include:
+- NVIDIA RTX GPU (required for physics simulation)
+- Sufficient RAM and storage
+- Compatible NVIDIA drivers
+
+Other Linux distributions and Windows may work but are not officially supported.
+
+If your are not able to install the project on your own machine, the MILA will provide access to some computers.
+
 ## Installation
+
 
 If you encounter any installation problems, please post your questions in the Discord channel.
 
