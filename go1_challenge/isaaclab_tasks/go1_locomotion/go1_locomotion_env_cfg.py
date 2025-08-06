@@ -307,6 +307,9 @@ class EventCfg:
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
 
+    # for the arena
+    randomize_obstacles = None
+
 
 @configclass
 class RewardsCfg:

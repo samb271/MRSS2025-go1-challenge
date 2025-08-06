@@ -72,7 +72,7 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
     #! ArUco tags - Reference the USD with all tags and transform them
     # Reference the AprilTag USD file containing all tags and materials
     tags_xform = UsdGeom.Xform.Define(stage, "/World/arena/tags")
-    apriltag_usd_path = "./april_tags.usd"  # Adjust filename as needed
+    apriltag_usd_path = "assets/april_tags.usd"  # Adjust filename as needed
     tags_xform.GetPrim().GetReferences().AddReference(apriltag_usd_path)
 
     # Define tag positions and transformations
@@ -80,7 +80,7 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
     tag_size = 0.2 / 100
     corner_offset = 1.25
     wall_offset = wall_thickness / 2
-    z_height = 0.5
+    z_height = 0.3
 
     tag_transforms = [
         # (tag_id, position, rotation)
@@ -157,8 +157,8 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
 
 if __name__ == "__main__":
     # Create assets directory if it doesn't exist
-    assets_dir = Path(__file__).parent / "assets"
-    assets_dir.mkdir(exist_ok=True)
+    assets_dir = Path(__file__).parent
+    # assets_dir.mkdir(exist_ok=True)
 
     output_file = assets_dir / "arena_5x5.usd"
     create_arena_usd(str(output_file))

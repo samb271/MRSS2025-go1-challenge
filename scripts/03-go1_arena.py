@@ -224,28 +224,28 @@ def main():
 
                 obs_dict = get_observation_dict(obs)
 
-                # Prepare observations for NavController
-                nav_observations = {
-                    "base_ang_vel": obs["policy"][:, 3:6].cpu().numpy().flatten(),
-                    "projected_gravity": obs["policy"][:, 6:9].cpu().numpy().flatten(),
-                    "velocity_commands": obs["policy"][:, 9:12].cpu().numpy().flatten(),
-                    "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
-                    "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
-                    "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
-                    "rgb_image": env.scene["camera"].data.output["rgb"][0, ..., :3],
-                }
+                # TODO: Add NAV
+                # # Prepare observations for NavController
+                # nav_observations = {
+                #     "base_ang_vel": obs["policy"][:, 3:6].cpu().numpy().flatten(),
+                #     "projected_gravity": obs["policy"][:, 6:9].cpu().numpy().flatten(),
+                #     "velocity_commands": obs["policy"][:, 9:12].cpu().numpy().flatten(),
+                #     "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
+                #     "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
+                #     "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
+                #     "rgb_image": env.scene["camera"].data.output["rgb"][0, ..., :3],
+                # }
 
-                # Update NavController with observations
-                nav_controller.update(nav_observations)
+                # # Update NavController with observations
+                # nav_controller.update(nav_observations)
 
             # Get velocity command based on mode
             if args_cli.teleop and teleop_interface is not None:
-                # Use keyboard commands for teleoperation
                 command = teleop_interface.advance()
                 # print(f"[TELEOP] Keyboard command: {command}")
 
+            # Use NavController commands for autonomous navigation
             else:
-                # Use NavController commands for autonomous navigation
                 command = nav_controller.get_velocity_command()
                 print(f"[NAV] NavController command: {command}")
 
