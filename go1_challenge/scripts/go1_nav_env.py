@@ -23,6 +23,13 @@ from isaaclab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Go1 navigation environment with ArUco tags.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric API and use USD instead.")
+parser.add_argument(
+    "--level",
+    type=int,
+    default=2,
+    choices=[1, 2, 3],
+    help="Challenge level: 1=flat no obstacles, 2=flat with obstacles, 3=rough with obstacles",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -53,12 +60,13 @@ from isaacsim.core.utils.viewports import set_camera_view
 ##
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg import UnitreeGo1RoughEnvCfg
 from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import Go1LocomotionEnvCfg_PLAY
-from go1_challenge.isaaclab_tasks.go1_locomotion.go1_challenge_env_cfg import Go1ChallengeSceneCfg, constant_commands
+from go1_challenge.isaaclab_tasks.go1_locomotion.go1_challenge_env_cfg import (
+    create_go1_challenge_env_cfg,
+    constant_commands,
+)
 
 
 PKG_PATH = Path(__file__).parent.parent.parent
-
-GYM_TASK = "Isaac-Velocity-Flat-Unitree-Go1-v0"
 DEVICE = "cpu"
 
 
@@ -72,56 +80,18 @@ def load_policy_rsl(policy_file=None):
 
     print(f"[INFO] Loading policy from {policy_path}")
 
-    # # Load the policy directly (rsl-rl saves as pickle/torch)
-    # checkpoint = torch.load(policy_path, map_location="cpu")
-
-    # t = policy_path.parent / "exported" / "policy.pt"
+    # Load the policy directly (rsl-rl saves as pickle/torch)
     file_bytes = read_file(policy_path)
+
     # jit load the policy
     policy = torch.jit.load(file_bytes)
 
     return policy
-    # # Extract actor network from checkpoint
-    # if "model_state_dict" in checkpoint:
-    #     policy_state_dict = checkpoint["model_state_dict"]
-    # elif "ac_parameters_1" in checkpoint:  # rsl-rl format
-    #     policy_state_dict = checkpoint["ac_parameters_1"]
-    # else:
-    #     policy_state_dict = checkpoint
-
-    # # Create a simple MLP policy network (adjust architecture as needed)
-    # class PolicyMLP(torch.nn.Module):
-    #     def __init__(self, input_size=48, output_size=12, hidden_dims=[512, 256, 128]):
-    #         super().__init__()
-    #         layers = []
-    #         prev_dim = input_size
-
-    #         for hidden_dim in hidden_dims:
-    #             layers.extend([torch.nn.Linear(prev_dim, hidden_dim), torch.nn.ELU()])
-    #             prev_dim = hidden_dim
-
-    #         layers.append(torch.nn.Linear(prev_dim, output_size))
-    #         self.network = torch.nn.Sequential(*layers)
-
-    #     def forward(self, x):
-    #         return self.network(x)
-
-    # policy = PolicyMLP()
-
-    # # Load state dict (may need filtering for actor-only weights)
-    # try:
-    #     policy.load_state_dict(policy_state_dict)
-    # except RuntimeError:
-    #     # Filter for actor weights only if full AC model is saved
-    #     actor_weights = {k.replace("actor.", ""): v for k, v in policy_state_dict.items() if "actor" in k}
-    #     policy.load_state_dict(actor_weights)
-
-    # return policy
 
 
 def load_gym_env() -> ManagerBasedRLEnv:
     """Load the Gym environment."""
-    env_cfg = Go1ChallengeSceneCfg()
+    env_cfg = create_go1_challenge_env_cfg(level=args_cli.level)
     env_cfg.sim.device = DEVICE
     if DEVICE == "cpu":
         env_cfg.sim.use_fabric = False
@@ -131,7 +101,8 @@ def load_gym_env() -> ManagerBasedRLEnv:
 
     env_cfg.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
 
-    env_cfg.scene.camera = None  # Disable camera for this example
+    # Disable camera for this example
+    env_cfg.scene.camera = None
 
     env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
@@ -140,7 +111,9 @@ def load_gym_env() -> ManagerBasedRLEnv:
 def main():
     """Main function."""
     # setup environment
-    env = load_gym_env()  # To load env used for training
+    env = load_gym_env()
+
+    print(f"[INFO] Challenge Level {args_cli.level} loaded")
 
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
 

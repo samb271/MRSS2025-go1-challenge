@@ -23,22 +23,22 @@ def create_arena_usd(output_path: str, arena_size: float = 5.0):
     root_prim = UsdGeom.Xform.Define(stage, "/World")
     stage.SetDefaultPrim(root_prim.GetPrim())
 
-    #! Create ground plane
-    ground = UsdGeom.Mesh.Define(stage, "/World/ground")
-    ground.CreatePointsAttr(
-        [
-            (-arena_size / 2, -arena_size / 2, 0),
-            (arena_size / 2, -arena_size / 2, 0),
-            (arena_size / 2, arena_size / 2, 0),
-            (-arena_size / 2, arena_size / 2, 0),
-        ]
-    )
-    ground.CreateFaceVertexCountsAttr([4])
-    ground.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
-    ground.CreateNormalsAttr([(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)])
+    # #! Create ground plane
+    # ground = UsdGeom.Mesh.Define(stage, "/World/ground")
+    # ground.CreatePointsAttr(
+    #     [
+    #         (-arena_size / 2, -arena_size / 2, 0),
+    #         (arena_size / 2, -arena_size / 2, 0),
+    #         (arena_size / 2, arena_size / 2, 0),
+    #         (-arena_size / 2, arena_size / 2, 0),
+    #     ]
+    # )
+    # ground.CreateFaceVertexCountsAttr([4])
+    # ground.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    # ground.CreateNormalsAttr([(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)])
 
-    # Add physics to ground
-    ground_collision = UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
+    # # Add physics to ground
+    # ground_collision = UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
 
     #! Create walls
     wall_height = 1.0

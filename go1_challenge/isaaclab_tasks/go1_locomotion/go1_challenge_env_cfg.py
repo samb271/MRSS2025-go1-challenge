@@ -22,6 +22,7 @@ from isaaclab.managers import SceneEntityCfg
 
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.terrains import TerrainImporterCfg, TerrainGeneratorCfg
+import isaaclab.terrains as terrain_gen
 
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, check_file_path, read_file
@@ -54,23 +55,90 @@ ARENA_ASSETS_DIR = Path(__file__).parent.parent.parent / "arena_assets"
 class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
     """Design the scene with Go1 robot and camera."""
 
+    # Class attribute to store the level
+    level: int = 1
+
     def __post_init__(self):
         """Post initialization to add dynamically generated components."""
         super().__post_init__()
 
-        # -- Arena: Use custom USD file
+        # Import arena
         arena_usd_path = ARENA_ASSETS_DIR / "arena_5x5.usd"
-
         if not arena_usd_path.exists():
             raise FileNotFoundError(f"Arena USD file not found: {arena_usd_path}")
 
-        self.scene.terrain = TerrainImporterCfg(
-            prim_path="/World/ground",
-            terrain_type="usd",
-            usd_path=arena_usd_path.as_posix(),  # Ensure path is in POSIX format for USD
+        # Add arena walls and tags as separate assets
+        self.scene.arena_walls = AssetBaseCfg(
+            prim_path="/World/arena_structure",
+            spawn=sim_utils.UsdFileCfg(
+                usd_path=arena_usd_path.as_posix(),
+                # Only spawn the wall/tag structures, not the ground plane
+            ),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 0.0)),
+            collision_group=-1,
         )
 
-        # -- Camera
+        # Configure ground based on level
+        if self.level in [1, 2]:
+            # Level 1 & 2: Flat arena with AprilTags
+            arena_terrain_cfg = TerrainGeneratorCfg(
+                size=(2.5, 2.5),  # Slightly larger than arena to cover edges
+                border_width=0.1,
+                num_rows=2,
+                num_cols=2,
+                horizontal_scale=0.1,
+                vertical_scale=0.005,
+                slope_threshold=0.75,
+                use_cache=False,
+                sub_terrains={
+                    "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=1.0),
+                },
+            )
+
+        else:
+            # Level 3: Arena with rough terrain overlay
+            arena_terrain_cfg = TerrainGeneratorCfg(
+                size=(2.5, 2.5),  # Slightly larger than arena to cover edges
+                border_width=0.02,
+                num_rows=2,
+                num_cols=2,
+                horizontal_scale=0.1,
+                vertical_scale=0.005,
+                slope_threshold=0.75,
+                use_cache=False,
+                sub_terrains={
+                    "boxes": terrain_gen.MeshRandomGridTerrainCfg(
+                        proportion=0.5, grid_width=0.45, grid_height_range=(0.025, 0.1), platform_width=2.0
+                    ),
+                    "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+                        proportion=0.5, noise_range=(0.01, 0.04), noise_step=0.01, border_width=0.25
+                    ),
+                    # "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.0),
+                },
+            )
+
+        # Use multi-terrain approach: arena base + rough heightfield
+        self.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="generator",
+            terrain_generator=arena_terrain_cfg,
+            max_init_terrain_level=0,  # Single terrain level
+            collision_group=-1,
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="multiply",
+                restitution_combine_mode="multiply",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+            visual_material=sim_utils.MdlFileCfg(
+                mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+                project_uvw=True,
+                texture_scale=(0.25, 0.25),
+            ),
+            debug_vis=False,
+        )
+
+        # -- Camera (all levels)
         self.scene.camera = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/trunk/front_cam",
             update_period=0.1,
@@ -80,89 +148,87 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
             ),
-            offset=CameraCfg.OffsetCfg(
-                pos=(0.25, 0.0, 0.08), rot=(1.0, 0.0, 0.0, 0.0), convention="world"
-            ),  # TODO: Validate
+            offset=CameraCfg.OffsetCfg(pos=(0.25, 0.0, 0.08), rot=(1.0, 0.0, 0.0, 0.0), convention="world"),
         )
 
-        # -- Dynamic obstacles
-        # Prism obstacle 1
-        self.scene.obstacle_1 = AssetBaseCfg(
-            prim_path="/World/obstacles/obstacle_1",
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 1.0, 0.0)),
-            spawn=sim_utils.UsdFileCfg(
-                usd_path=(ARENA_ASSETS_DIR / "assets" / "obstacle.usd").as_posix(),
-                # variants="v1",
-                scale=(1.0, 1.0, 1),
-                #     rigid_props=RigidBodyPropertiesCfg(
-                #         solver_position_iteration_count=16,
-                #         solver_velocity_iteration_count=1,
-                #         max_angular_velocity=1000.0,
-                #         max_linear_velocity=1000.0,
-                #         max_depenetration_velocity=5.0,
-                #         disable_gravity=False,
-                #     ),
-                # ),
-                variants={
-                    "Tag": "_15",
+        # -- Dynamic obstacles (Level 2 & 3 only)
+        if self.level >= 2:
+            self.scene.obstacle_1 = AssetBaseCfg(
+                prim_path="/World/obstacles/obstacle_1",
+                init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 1.0, 0.0)),
+                spawn=sim_utils.UsdFileCfg(
+                    usd_path=(ARENA_ASSETS_DIR / "assets" / "obstacle.usd").as_posix(),
+                    scale=(1.0, 1.0, 1),
+                    variants={"Tag": "_15"},
+                ),
+                collision_group=-1,
+            )
+
+            self.scene.obstacle_2 = AssetBaseCfg(
+                prim_path="/World/obstacles/obstacle_2",
+                init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.0)),
+                spawn=sim_utils.UsdFileCfg(
+                    usd_path=(ARENA_ASSETS_DIR / "assets" / "obstacle.usd").as_posix(),
+                    scale=(1.0, 1.0, 1),
+                    variants={"Tag": "_16"},
+                ),
+                collision_group=-1,
+            )
+
+            self.scene.obstacle_3 = AssetBaseCfg(
+                prim_path="/World/obstacles/obstacle_3",
+                init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.0)),
+                spawn=sim_utils.UsdFileCfg(
+                    usd_path=(ARENA_ASSETS_DIR / "assets" / "obstacle.usd").as_posix(),
+                    scale=(1.0, 1.0, 1),
+                    variants={"Tag": "_16"},
+                ),
+                collision_group=-1,
+            )
+
+            # Add obstacle randomization event
+            self.events.randomize_obstacle_positions = EventTerm(
+                func=randomize_obstacle_positions,
+                mode="reset",
+                params={
+                    "asset_cfgs": [
+                        SceneEntityCfg("obstacle_1"),
+                        SceneEntityCfg("obstacle_2"),
+                        SceneEntityCfg("obstacle_3"),
+                    ],
+                    "arena_size": 5.0,
+                    "wall_buffer": 1.0,
+                    "obstacle_buffer": 1.5,
+                    "safe_zone_size": 2.5,
                 },
-            ),
-        )
+            )
 
-        self.scene.obstacle_2 = AssetBaseCfg(
-            prim_path="/World/obstacles/obstacle_2",
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.0)),
-            spawn=sim_utils.UsdFileCfg(
-                usd_path=(ARENA_ASSETS_DIR / "assets" / "obstacle.usd").as_posix(),
-                scale=(1.0, 1.0, 1),
-                variants={
-                    "Tag": "_16",
-                },
-            ),
-        )
-
-        self.scene.obstacle_3 = AssetBaseCfg(
-            prim_path="/World/obstacles/obstacle_3",
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(-1.0, -1.0, 0.0)),
-            spawn=sim_utils.UsdFileCfg(
-                usd_path=(ARENA_ASSETS_DIR / "assets" / "obstacle.usd").as_posix(),
-                scale=(1.0, 1.0, 1),
-                variants={
-                    "Tag": "_16",
-                },
-            ),
-        )
-
-        # -- robot: Random spawn in safe zone (center 0.5x0.5m area)
-        self.scene.robot.init_state.pos = (0.0, 0.0, 0.4)
-
+        # -- Robot spawn configuration
+        self.scene.robot.init_state.pos = (0, 0, 0.4)
         self.scene.num_envs = 1
 
-        # -- mdp
+        # -- MDP settings
         self.episode_length_s = 60.0
         self.curriculum = None
-
         self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
 
-        # -- Add event for obstacle randomization
-        self.events.randomize_obstacles = EventTerm(
-            func=randomize_obstacle_positions,
-            mode="reset",
-            params={
-                "asset_cfgs": [
-                    SceneEntityCfg("obstacle_1"),
-                    SceneEntityCfg("obstacle_2"),
-                    SceneEntityCfg("obstacle_3"),
-                ],
-                "arena_size": 5.0,
-                "wall_buffer": 1.0,
-                "obstacle_buffer": 1.5,
-                "safe_zone_size": 2.5,
-            },
-        )
+        # Update robot spawn to be in bottom left corner safe zone
+        # self.events.reset_base.params["pose_range"] = {"x": (-1.25, -1.25), "y": (-1.25, -1.25), "yaw": (-3.14, 3.14)}
+        self.events.reset_base.params["pose_range"] = {"x": (0.0, 0.0), "y": (0.0, 0.0), "yaw": (-3.14, 3.14)}
 
-        # Update robot spawn to be random within safe zone
-        self.events.reset_base.params["pose_range"] = {"x": (-1.25, -1.25), "y": (-1.25, -1.25), "yaw": (-3.14, 3.14)}
+        print(f"[INFO] Go1 Challenge Level {self.level} configured:")
+        if self.level == 1:
+            print("  - Flat arena with AprilTags")
+            print("  - No obstacles")
+
+        elif self.level == 2:
+            print("  - Flat arena with AprilTags")
+            print("  - 3 dynamic obstacles")
+
+        elif self.level == 3:
+            print("  - Arena walls and AprilTags")
+            print("  - Rough terrain heightfield")
+            print("  - 3 dynamic obstacles")
 
 
 ##

@@ -39,6 +39,13 @@ parser.add_argument(
     action="store_true",
     help="Use keyboard teleoperation. If false, use NavController for autonomous navigation.",
 )
+parser.add_argument(
+    "--level",
+    type=int,
+    default=1,
+    choices=[1, 2, 3],
+    help="Challenge level: 1=flat no obstacles, 2=flat with obstacles, 3=rough with obstacles",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -104,16 +111,15 @@ def load_policy_rsl(policy_file: str):
     return policy
 
 
-def load_gym_env() -> ManagerBasedRLEnv:
-    """Load the Gym environment with keyboard velocity commands."""
-    env_cfg = Go1ChallengeSceneCfg()
+def load_gym_env(level: int = 1) -> ManagerBasedRLEnv:
+    """Load the Gym environment with specified challenge level."""
+    env_cfg = Go1ChallengeSceneCfg(level=level)
+
     env_cfg.sim.device = DEVICE
     if DEVICE == "cpu":
         env_cfg.sim.use_fabric = False
 
     env_cfg.episode_length_s = 60.0
-
-    env_cfg.observations.policy.base_lin_vel = None  # Use null to disable this observation.
 
     env = ManagerBasedRLEnv(cfg=env_cfg)
     return env
@@ -163,8 +169,8 @@ def get_observation_dict(obs: dict) -> dict:
 def main():
     """Main teleoperation loop."""
 
-    # Setup environment
-    env = load_gym_env()
+    # Setup environment with specified level
+    env = load_gym_env(level=args_cli.level)
 
     # --- Setup keyboard interface (only if teleoperation is enabled)
     if args_cli.teleop:
@@ -192,7 +198,8 @@ def main():
     set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
 
     # --- Reset environment
-    teleop_interface.reset()
+    if teleop_interface is not None:
+        teleop_interface.reset()
     obs, _ = env.reset()
 
     count = 0
@@ -208,6 +215,7 @@ def main():
         tag_family="tag36h11",
     )
 
+    print(f"[INFO] Challenge Level {args_cli.level} loaded")
     print(f"[INFO] NavController initialized:")
     print(f"  Camera params: {camera_params}")
     print(f"  Tag size: 0.16m")

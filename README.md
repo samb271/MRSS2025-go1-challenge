@@ -191,7 +191,7 @@ proportions of the different difficulties in the configuration file (under `env.
 
 You can also test your policy in the arena with:
 ```bash
-python scripts/03-go1_arena.py --teleop --policy logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt
+python scripts/03-go1_arena.py --teleop --level 1 --policy logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt
 ```
 
 You can control the robot with:
@@ -199,6 +199,13 @@ You can control the robot with:
 - `Z & X`: Yaw.
 - `R`: Reset.
 - `ESC`: Close the sim. 
+
+There are three levels of increasing difficulty:
+- 1: No obstacles, flat ground
+- 2: Obstacles, flat ground
+- 3: Obstacles, rough ground
+
+The level can be specified via the `--level` arg.  
 
 
 ## Challenge 3 - Walking alone
