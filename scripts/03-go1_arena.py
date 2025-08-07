@@ -84,8 +84,10 @@ from go1_challenge.isaaclab_tasks.go1_locomotion.go1_challenge_env_cfg import Go
 PKG_PATH = Path(__file__).parent.parent
 DEVICE = "cpu"
 
-NAV_FREQ = 4
+# Frequencies for navigation and localization updates
+# Main loop runs at 50 Hz
 LOCALIZATION_FREQ = 10  # Frequency for localization updates
+NAV_FREQ = 5  # Frequency for action updates
 
 
 def load_policy_rsl(policy_file: str):
@@ -152,6 +154,19 @@ def get_camera_intrinsics(camera_cfg):
     return camera_params
 
 
+def get_camera_data(env) -> dict:
+    """Get camera data from the environment."""
+    camera = env.scene["camera"]
+
+    if camera is not None:
+        rgb_data = camera.data.output["rgb"][0, ..., :3].cpu().numpy().flatten()
+        distance_data = camera.data.output["distance_to_image_plane"][0].cpu().numpy().flatten()
+        return {"camera_rgb": rgb_data, "camera_distance": distance_data}
+
+    else:
+        return None
+
+
 def get_observation_dict(obs: dict) -> dict:
     """Convert observation tensor to a dictionary for easier access."""
     obs_dict = {
@@ -166,28 +181,47 @@ def get_observation_dict(obs: dict) -> dict:
     return obs_dict
 
 
+def get_goal_position(env) -> np.ndarray:
+    """Get the current goal position from the environment."""
+    try:
+        goal_asset = env.scene["goal"]
+        goal_pos = goal_asset.get_world_poses()[0][0].cpu().numpy()  # Get position for env 0
+        return goal_pos[:2]  # Return only x, y coordinates
+
+    except (KeyError, AttributeError):
+        print("[WARNING] Goal asset not found in scene")
+        return np.array([2.0, 2.0])  # Default goal position
+
+
+def get_robot_position(env) -> np.ndarray:
+    """Get the current robot position from the environment."""
+    robot_asset = env.scene["robot"]
+    robot_pos = robot_asset.data.root_pos_w[0].cpu().numpy()
+    return robot_pos[:2]  # Return only x, y coordinates
+
+
 def main():
     """Main teleoperation loop."""
 
     # Setup environment with specified level
     env = load_gym_env(level=args_cli.level)
 
-    # --- Setup keyboard interface (only if teleoperation is enabled)
+    # --- Setup keyboard interface
+    sensitivity_lin = 1.0
+    sensitivity_ang = 1.0
+    teleop_interface = Se2Keyboard(
+        v_x_sensitivity=sensitivity_lin, v_y_sensitivity=sensitivity_lin, omega_z_sensitivity=sensitivity_ang
+    )
+
+    teleop_interface.add_callback("R", env.reset)
+    teleop_interface.add_callback("ESCAPE", quit_cb)
+
+    print(teleop_interface)
+
     if args_cli.teleop:
-        sensitivity_lin = 1.0
-        sensitivity_ang = 1.0
-        teleop_interface = Se2Keyboard(
-            v_x_sensitivity=sensitivity_lin, v_y_sensitivity=sensitivity_lin, omega_z_sensitivity=sensitivity_ang
-        )
-
-        teleop_interface.add_callback("R", env.reset)
-        teleop_interface.add_callback("ESCAPE", quit_cb)
-
-        print(teleop_interface)
         print("\n[INFO] Teleoperation mode enabled. Use Arrows+ZX to control the robot.")
 
     else:
-        teleop_interface = None
         print("\n[INFO] Autonomous navigation mode enabled. NavController will control the robot.")
 
     # --- Load trained policy
@@ -200,13 +234,24 @@ def main():
     # --- Reset environment
     if teleop_interface is not None:
         teleop_interface.reset()
+
+    print("[DEBUG] Calling env.reset()...")
     obs, _ = env.reset()
 
-    count = 0
-    nav_count = 1 / (NAV_FREQ * env.cfg.sim.dt)
-    localization_count = 1 / (LOCALIZATION_FREQ * env.cfg.sim.dt)
+    # Verify positions after reset
+    initial_robot_pos = get_robot_position(env)
+    initial_goal_pos = get_goal_position(env)
+    initial_distance = np.linalg.norm(initial_goal_pos - initial_robot_pos)
 
-    # --- Initialize NavController
+    print(f"[DEBUG] After reset - Robot: ({initial_robot_pos[0]:.2f}, {initial_robot_pos[1]:.2f})")
+    print(f"[DEBUG] After reset - Goal: ({initial_goal_pos[0]:.2f}, {initial_goal_pos[1]:.2f})")
+    print(f"[DEBUG] After reset - Distance: {initial_distance:.2f}m (min required: 2.0m)")
+
+    count = 0
+    nav_count = 1 / (NAV_FREQ * env.step_dt)
+    localization_count = 1 / (LOCALIZATION_FREQ * env.step_dt)
+
+    # --- Initialize NavController, for autonmous navigation
     camera_cfg = env.cfg.scene.camera
     camera_params = get_camera_intrinsics(camera_cfg)
     nav_controller = NavController(
@@ -214,6 +259,7 @@ def main():
         tag_size=0.16,  # Length of the black square in meters
         tag_family="tag36h11",
     )
+    last_nav_command = np.zeros(3)  # Initialize last command
 
     print(f"[INFO] Challenge Level {args_cli.level} loaded")
     print(f"[INFO] NavController initialized:")
@@ -221,32 +267,43 @@ def main():
     print(f"  Tag size: 0.16m")
     print(f"  Tag family: tag36h11")
 
-    # --- Main loop
+    # --- Main loop (50 Hz)
     while simulation_app.is_running():
         with torch.inference_mode():
-            # Navigation loop - update NavController
+            # --- Nav - update controller observations ()
             if count % localization_count == 0:
                 # --- Get camera data
-                rgb_data = env.scene["camera"].data.output["rgb"][0, ..., :3]
-                distance_data = env.scene["camera"].data.output["distance_to_image_plane"][0]
-
+                camera_data_dict = get_camera_data(env)
                 obs_dict = get_observation_dict(obs)
 
-                # TODO: Add NAV
-                # # Prepare observations for NavController
-                # nav_observations = {
-                #     "base_ang_vel": obs["policy"][:, 3:6].cpu().numpy().flatten(),
-                #     "projected_gravity": obs["policy"][:, 6:9].cpu().numpy().flatten(),
-                #     "velocity_commands": obs["policy"][:, 9:12].cpu().numpy().flatten(),
-                #     "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
-                #     "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
-                #     "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
-                #     "rgb_image": env.scene["camera"].data.output["rgb"][0, ..., :3],
-                # }
+                # Get goal and robot positions
+                goal_pos = get_goal_position(env)
+                robot_pos = get_robot_position(env)
 
-                # # Update NavController with observations
-                # nav_controller.update(nav_observations)
+                # Add goal and robot positions to observations
+                nav_observations = {
+                    **camera_data_dict,
+                    **obs_dict,
+                    "goal_position": goal_pos,
+                    "robot_position": robot_pos,
+                }
 
+                nav_controller.update(nav_observations)
+
+                # Debug info
+                goal_distance = np.linalg.norm(goal_pos - robot_pos)
+                print(
+                    f"[DEBUG] Robot: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}), ",
+                    f"Goal: ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}), ",
+                    f"Dist: {goal_distance:.2f}m ",
+                )
+
+            # --- Nav - get nav command
+            if count % nav_count == 0 and not args_cli.teleop:
+                last_nav_command = nav_controller.get_velocity_command()
+                # print(f"[NAV] NavController command: {last_nav_command}")
+
+            # --- Step simulation
             # Get velocity command based on mode
             if args_cli.teleop and teleop_interface is not None:
                 command = teleop_interface.advance()
@@ -254,8 +311,7 @@ def main():
 
             # Use NavController commands for autonomous navigation
             else:
-                command = nav_controller.get_velocity_command()
-                print(f"[NAV] NavController command: {command}")
+                command = last_nav_command
 
             # Update policy observation with velocity command
             obs["policy"][:, 6:9] = torch.tensor(command)

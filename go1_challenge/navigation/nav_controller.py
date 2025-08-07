@@ -12,14 +12,7 @@ import time
 import os
 from typing import Dict, Tuple, Optional, Any
 
-# AprilTag detection
-try:
-    from pyapriltags import Detector
-
-    APRILTAG_AVAILABLE = True
-except ImportError:
-    APRILTAG_AVAILABLE = False
-    print("Warning: pyapriltags library not available. Install with: pip install pyapriltags")
+from pyapriltags import Detector
 
 
 class NavController:
@@ -31,7 +24,7 @@ class NavController:
     """
 
     def __init__(
-        self, camera_params: Tuple[float, float, float, float], tag_size: float = 0.16, tag_family: str = "tag36h11"
+        self, camera_params: tuple[float, float, float, float], tag_size: float = 0.16, tag_family: str = "tag36h11"
     ):
         """
         Initialize the navigation controller.
@@ -52,20 +45,15 @@ class NavController:
         self.tag_size = tag_size
         self.tag_family = tag_family
 
-        # Initialize AprilTag detector
-        if APRILTAG_AVAILABLE:
-            self.at_detector = Detector(
-                families=tag_family,
-                nthreads=1,
-                quad_decimate=1.0,
-                quad_sigma=0.0,
-                refine_edges=1,
-                decode_sharpening=0.25,
-                debug=0,
-            )
-        else:
-            self.at_detector = None
-            print("[WARNING] AprilTag detection not available")
+        self.at_detector = Detector(
+            families=tag_family,
+            nthreads=1,
+            quad_decimate=1.0,
+            quad_sigma=0.0,
+            refine_edges=1,
+            decode_sharpening=0.25,
+            debug=0,
+        )
 
         # Example state variables (students can modify/extend):
         self.robot_pose = np.array([0.0, 0.0, 0.0])  # [x, y, yaw] in world frame
@@ -76,7 +64,7 @@ class NavController:
         # Students can add more state variables as needed
         pass
 
-    def detect_apriltags(self, rgb_image: torch.Tensor, visualize: bool = False) -> Dict[int, Dict]:
+    def detect_apriltags(self, rgb_image: torch.Tensor, visualize: bool = False) -> dict[int, dict]:
         """
         Detect AprilTags in RGB image and estimate their poses.
 
@@ -92,10 +80,6 @@ class NavController:
             Format: {tag_id: {"pose": {"position": [x,y,z], "rotation_matrix": [[...]]},
                              "distance": float, "confidence": float}}
         """
-        if not APRILTAG_AVAILABLE or self.at_detector is None:
-            print("[WARNING] AprilTag detection not available")
-            return {}
-
         try:
             # Convert tensor to numpy and ensure correct format
             if isinstance(rgb_image, torch.Tensor):
@@ -214,7 +198,7 @@ class NavController:
         except Exception as e:
             print(f"[WARNING] Failed to save visualization: {e}")
 
-    def update(self, observations: Dict[str, Any]) -> None:
+    def update(self, observations: dict[str, Any]) -> None:
         """
         Update internal navigation state based on sensor observations.
 
@@ -230,6 +214,8 @@ class NavController:
                 - 'joint_vel': Joint velocities (12,) array
                 - 'actions': Last action taken (12,) array
                 - 'rgb_image': RGB camera image tensor (H, W, 3) or None
+                - 'goal_position': Goal position in world frame (2,) array [x, y]
+                - 'robot_position': Robot position in world frame (2,) array [x, y]
 
         Note:
             - rgb_image may be None if camera is not available
@@ -248,25 +234,41 @@ class NavController:
         base_ang_vel = observations.get("base_ang_vel", np.zeros(3))
         projected_gravity = observations.get("projected_gravity", np.zeros(3))
 
+        # Get goal and robot positions
+        goal_position = observations.get("goal_position", np.array([0.0, 0.0]))
+        robot_position = observations.get("robot_position", np.array([0.0, 0.0]))
+
         # Students implement localization logic here:
         # 1. Dead reckoning using IMU/odometry
         # 2. AprilTag-based localization updates using detected_tags
         # 3. Sensor fusion (EKF, particle filter, etc.)
         # 4. Map/landmark management
+        # 5. Path planning to goal_position
 
-        # Example: Print detected tags for debugging
+        # Example: Simple goal-seeking behavior
+        goal_distance = np.linalg.norm(goal_position - robot_position)
+
+        # Update internal state
+        self.robot_pose[:2] = robot_position  # Update position estimate
+
+        # Example: Print detected tags and goal info for debugging
         if detected_tags:
             print(f"[NavController] Detected tags: {list(detected_tags.keys())}")
+
+        # print(f"[NavController] Goal distance: {goal_distance:.2f}m")
 
         # TODO: Implement student localization logic
         pass
 
-    def get_velocity_command(self) -> Tuple[float, float, float]:
+    def get_velocity_command(self) -> tuple[float, float, float]:
         """
         Generate velocity command based on current navigation state.
 
-        This method is called at control frequency to get the desired robot motion.
-        Students should implement navigation/path planning logic here.
+        Students should implement navigation/path planning logic here using:
+        - Current robot pose estimate (self.robot_pose)
+        - Goal position (from latest observations)
+        - Detected AprilTags for localization
+        - Obstacle avoidance logic
 
         Returns:
             Tuple of (lin_vel_x, lin_vel_y, ang_vel_z) in robot body frame.
@@ -279,7 +281,7 @@ class NavController:
         # 4. Behavior planning (exploration, goal seeking, etc.)
 
         # Example placeholder - simple forward motion:
-        lin_vel_x = 0.5  # Move forward at half speed
+        lin_vel_x = 0.0  # Move forward at reduced speed
         lin_vel_y = 0.0  # No lateral motion
         ang_vel_z = 0.0  # No rotation
 
@@ -306,7 +308,7 @@ class NavController:
         # TODO: Implement student reset logic
         pass
 
-    def get_debug_info(self) -> Dict[str, Any]:
+    def get_debug_info(self) -> dict[str, Any]:
         """Get debug information for visualization/logging."""
         return {
             "robot_pose": self.robot_pose.tolist(),
