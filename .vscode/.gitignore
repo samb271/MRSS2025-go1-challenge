@@ -1,0 +1,10 @@
+
+# Ignore all other files
+.python.env
+*.json
+*.dict
+
+# Note: These files are kept for development purposes only.
+!tools/launch.template.json
+!tools/settings.template.json
+!extensions.json
