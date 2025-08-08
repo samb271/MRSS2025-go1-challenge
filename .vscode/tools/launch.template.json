@@ -1,0 +1,71 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        // For standalone script execution
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "01-Train",
+            "type": "debugpy",
+            "request": "launch",
+            "args": [
+                "--config",
+                "config/training_params.yaml"
+            ],
+            "program": "${workspaceFolder}/scripts/01-train.py",
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "02-Play",
+            "type": "debugpy",
+            "request": "launch",
+            "args": [
+                "--load_run",
+                "2025-08-05_15-16-27",
+                "--num_envs",
+                "1",
+                "--headless"
+                // "--checkpoint",
+                // "logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt"
+            ],
+            "program": "${workspaceFolder}/scripts/02-play.py",
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "03-Teleop",
+            "type": "debugpy",
+            "request": "launch",
+            "args": [
+                "--teleop",
+                "--level",
+                "1",
+                "--policy",
+                "logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt",
+            ],
+            "program": "${workspaceFolder}/scripts/03-go1_arena.py",
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "04-Autonomous Nav",
+            "type": "debugpy",
+            "request": "launch",
+            "args": [
+                "--teleop",
+                "--level",
+                "2",
+                "--policy",
+                "logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt",
+            ],
+            "program": "${workspaceFolder}/scripts/03-go1_arena.py",
+            "console": "integratedTerminal",
+        },
+    ]
+}

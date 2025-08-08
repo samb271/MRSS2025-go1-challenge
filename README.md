@@ -117,13 +117,57 @@ Install the Go1 Challenge repository:
    ```
 
 ### 4. VS Code Setup (Optional)
-TODO
-- Settings
-- Launch configuration
+
+We provide VS Code configuration templates to help you debug and run the scripts more easily.
+
+#### Setup Instructions
+
+1. **Copy the template files** to create your VS Code configuration:
+   ```bash
+   # From the project root directory
+   cp .vscode/tools/settings.template.json .vscode/settings.json
+   cp .vscode/tools/launch.template.json .vscode/launch.json
+   ```
+
+2. **Update Isaac Lab path** in `.vscode/settings.json`:
+   - Open `.vscode/settings.json`
+   - Find the `python.analysis.extraPaths` section
+   - Replace `${workspaceFolder}/path/to/IsaacLab/` with your actual Isaac Lab installation path
+   
+   Example:
+   ```json
+   "python.analysis.extraPaths": [
+       "/home/your_username/IsaacLab/source/isaaclab",
+       "/home/your_username/IsaacLab/source/isaaclab_assets",
+       "/home/your_username/IsaacLab/source/isaaclab_mimic",
+       "/home/your_username/IsaacLab/source/isaaclab_rl",
+       "/home/your_username/IsaacLab/source/isaaclab_tasks",
+   ]
+   ```
+
+#### Features Included
+
+**Settings Template** (`.vscode/settings.template.json`):
+- Isaac Lab path configuration for IntelliSense
+
+**Launch Template** (`.vscode/launch.template.json`):
+- Pre-configured debug configurations for all main scripts:
+  - `01-Train`: Train a locomotion policy for the Go1
+  - `02-Play`: Test trained policies
+  - `03-Teleop`: Manual control in arena
+  - `04-Autonomous Nav`: Autonomous navigation
+- Customizable arguments for each script
+
+#### Usage
+
+1. **Debugging**: Set breakpoints in your code and use `F5` or the Run/Debug panel
+3. **Modify arguments**: Edit `.vscode/launch.json` to change script parameters
+
+For more detailed VS Code setup with Isaac Lab, see the [Isaac Lab VS Code guide](https://isaac-sim.github.io/IsaacLab/main/source/overview/developer-guide/vs_code.html).
 
 ## Challenge 1 - Learn to Walk
 
-### 1. Training Policy
+### 1. Training a Policy
 
 If you've followed all the steps correctly, you should have a Python environment (Conda) with Isaac Lab installed along with this project.
 
@@ -165,7 +209,7 @@ Checkpoints will be saved under `logs/rsl_rl/<run_name>/<timestamp>`.
 > - Modify the terrain settings
 > - Adjust the reward coefficients
 
-### 2. Playing Policy
+### 2. Playing a Policy
 
 To test the trained policy, run the following command:
 
@@ -195,11 +239,9 @@ The script exports your policy to a `jit` file at `logs/rsl_rl/<run_name>/<times
 After verifying your policy works well in simulation, you can test it on the real robot! Send your exported policy (e.g., `policy.pt`) to your robot supervisor.
 
 ## Challenge 2 - Navigate Obstacles
-*This part is in progress*
-
 Train a policy that performs well on uneven terrain and across obstacles.
 
-You can test your policy's performance in simulation by changing the terrain level. The terrain configuration is defined in `go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg.ROUGH_TERRAINS_CFG`. Try changing the proportions of different difficulties in the configuration file (under `env.terrain.terrain_generator.sub_terrains`).
+You can test your policy's performance in simulation by changing the terrain level. The terrain configuration is defined in [`go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg.ROUGH_TERRAINS_CFG`](go1_challenge/isaaclab_tasks/go1_locomotion/go1_locomotion_env_cfg.py). Try changing the proportions of different difficulties in the configuration file (under [`env.terrain.terrain_generator.sub_terrains`](config/training_params.yaml)).
 
 You can also test your policy in the arena with:
 ```bash
