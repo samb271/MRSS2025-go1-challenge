@@ -86,7 +86,8 @@ DEVICE = "cpu"
 
 # Frequencies for navigation and localization updates
 # Main loop runs at 50 Hz
-LOCALIZATION_FREQ = 10  # Frequency for localization updates
+OBS_FREQ = 10  # Frequency for observations updates
+VIDEO_FREQ = 10  # Frequency for video capture
 NAV_FREQ = 5  # Frequency for action updates
 
 
@@ -128,7 +129,7 @@ def load_gym_env(level: int = 1) -> ManagerBasedRLEnv:
 
 
 def quit_cb():
-    """Dummy callback function executed when the key 'ESC' is pressed."""
+    """Dummy callback function executed when the key 'Q' is pressed."""
     print("Quit callback")
     simulation_app.close()
 
@@ -159,8 +160,8 @@ def get_camera_data(env) -> dict:
     camera = env.scene["camera"]
 
     if camera is not None:
-        rgb_data = camera.data.output["rgb"][0, ..., :3].cpu().numpy().flatten()
-        distance_data = camera.data.output["distance_to_image_plane"][0].cpu().numpy().flatten()
+        rgb_data = camera.data.output["rgb"][0, ..., :3].cpu().numpy()
+        distance_data = camera.data.output["distance_to_image_plane"][0].cpu().numpy()
         return {"camera_rgb": rgb_data, "camera_distance": distance_data}
 
     else:
@@ -170,13 +171,12 @@ def get_camera_data(env) -> dict:
 def get_observation_dict(obs: dict) -> dict:
     """Convert observation tensor to a dictionary for easier access."""
     obs_dict = {
-        "base_lin_vel": obs["policy"][:, 0:3].cpu().numpy().flatten(),
-        "base_ang_vel": obs["policy"][:, 3:6].cpu().numpy().flatten(),
-        "projected_gravity": obs["policy"][:, 6:9].cpu().numpy().flatten(),
-        "velocity_commands": obs["policy"][:, 9:12].cpu().numpy().flatten(),
-        "joint_pos": obs["policy"][:, 12:24].cpu().numpy().flatten(),
-        "joint_vel": obs["policy"][:, 24:36].cpu().numpy().flatten(),
-        "actions": obs["policy"][:, 36:48].cpu().numpy().flatten(),
+        "base_ang_vel": obs["policy"][:, 0:3].cpu().numpy().flatten(),
+        "projected_gravity": obs["policy"][:, 3:6].cpu().numpy().flatten(),
+        "velocity_commands": obs["policy"][:, 6:9].cpu().numpy().flatten(),
+        "joint_pos": obs["policy"][:, 9:21].cpu().numpy().flatten(),
+        "joint_vel": obs["policy"][:, 21:33].cpu().numpy().flatten(),
+        "actions": obs["policy"][:, 33:45].cpu().numpy().flatten(),
     }
     return obs_dict
 
@@ -193,11 +193,24 @@ def get_goal_position(env) -> np.ndarray:
         return np.array([2.0, 2.0])  # Default goal position
 
 
-def get_robot_position(env) -> np.ndarray:
-    """Get the current robot position from the environment."""
+def get_robot_position(env) -> tuple:
+    """Get the current robot position and orientation from the environment."""
     robot_asset = env.scene["robot"]
     robot_pos = robot_asset.data.root_pos_w[0].cpu().numpy()
-    return robot_pos[:2]  # Return only x, y coordinates
+    robot_quat = robot_asset.data.root_quat_w[0].cpu().numpy()  # [w, x, y, z]
+
+    # Convert quaternion to yaw angle
+    def quat_to_yaw(q):
+        """Convert quaternion (w, x, y, z) to yaw angle in radians."""
+        w, x, y, z = q
+        yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y**2 + z**2))
+        return yaw
+
+    yaw = quat_to_yaw(robot_quat)
+
+    robot_pose = [robot_pos[0], robot_pos[1], yaw]
+
+    return robot_pose  # Return (x, y, yaw) position and yaw
 
 
 def main():
@@ -214,7 +227,7 @@ def main():
     )
 
     teleop_interface.add_callback("R", env.reset)
-    teleop_interface.add_callback("ESCAPE", quit_cb)
+    teleop_interface.add_callback("Q", quit_cb)
 
     print(teleop_interface)
 
@@ -238,18 +251,10 @@ def main():
     print("[DEBUG] Calling env.reset()...")
     obs, _ = env.reset()
 
-    # Verify positions after reset
-    initial_robot_pos = get_robot_position(env)
-    initial_goal_pos = get_goal_position(env)
-    initial_distance = np.linalg.norm(initial_goal_pos - initial_robot_pos)
-
-    print(f"[DEBUG] After reset - Robot: ({initial_robot_pos[0]:.2f}, {initial_robot_pos[1]:.2f})")
-    print(f"[DEBUG] After reset - Goal: ({initial_goal_pos[0]:.2f}, {initial_goal_pos[1]:.2f})")
-    print(f"[DEBUG] After reset - Distance: {initial_distance:.2f}m (min required: 2.0m)")
-
     count = 0
-    nav_count = 1 / (NAV_FREQ * env.step_dt)
-    localization_count = 1 / (LOCALIZATION_FREQ * env.step_dt)
+    nav_update_count = 1 / (NAV_FREQ * env.step_dt)
+    video_update_count = 1 / (VIDEO_FREQ * env.step_dt)
+    obs_update_count = 1 / (OBS_FREQ * env.step_dt)
 
     # --- Initialize NavController, for autonmous navigation
     camera_cfg = env.cfg.scene.camera
@@ -270,38 +275,42 @@ def main():
     # --- Main loop (50 Hz)
     while simulation_app.is_running():
         with torch.inference_mode():
-            # --- Nav - update controller observations ()
-            if count % localization_count == 0:
-                # --- Get camera data
-                camera_data_dict = get_camera_data(env)
+            # --- Nav - send observations
+            if count % obs_update_count == 0:
                 obs_dict = get_observation_dict(obs)
 
                 # Get goal and robot positions
                 goal_pos = get_goal_position(env)
-                robot_pos = get_robot_position(env)
+                robot_pose = get_robot_position(env)
 
                 # Add goal and robot positions to observations
                 nav_observations = {
-                    **camera_data_dict,
                     **obs_dict,
                     "goal_position": goal_pos,
-                    "robot_position": robot_pos,
+                    "robot_pose": robot_pose,
                 }
 
                 nav_controller.update(nav_observations)
 
-                # Debug info
-                goal_distance = np.linalg.norm(goal_pos - robot_pos)
-                print(
-                    f"[DEBUG] Robot: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}), ",
-                    f"Goal: ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}), ",
-                    f"Dist: {goal_distance:.2f}m ",
-                )
+            # --- Nav - send video frames
+            if count % video_update_count == 0:
+                # --- Get camera data
+                camera_data_dict = get_camera_data(env)
+
+                nav_controller.update(camera_data_dict)
 
             # --- Nav - get nav command
-            if count % nav_count == 0 and not args_cli.teleop:
-                last_nav_command = nav_controller.get_velocity_command()
+            if count % nav_update_count == 0 and not args_cli.teleop:
+                last_nav_command = nav_controller.get_command()
                 # print(f"[NAV] NavController command: {last_nav_command}")
+
+            # # Debug info
+            # goal_distance = np.linalg.norm(goal_pos - robot_pose[:2])
+            # print(
+            #     f"[DEBUG] Robot: ({robot_pose[0]:.2f}, {robot_pose[1]:.2f}, {np.degrees(robot_pose[2]):.1f}°), ",
+            #     f"Goal: ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}), ",
+            #     f"Dist: {goal_distance:.2f}m ",
+            # )
 
             # --- Step simulation
             # Get velocity command based on mode

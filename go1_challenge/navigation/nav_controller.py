@@ -2,7 +2,7 @@
 Navigation Controller base class for Go1 Challenge.
 
 This class handles robot localization and navigation command generation.
-Students will implement the core methods to complete the navigation system.
+@MRSS25: You have to implement the core methods to complete the navigation system.
 """
 
 import numpy as np
@@ -10,9 +10,21 @@ import torch
 import cv2
 import time
 import os
-from typing import Dict, Tuple, Optional, Any
+from typing import Any
 
 from pyapriltags import Detector
+
+# Position of the tags in the arena
+TAG_POSITIONS = {
+    0: [1.25, 2.4, 0.5],
+    1: [-1.25, 2.4, 0.5],
+    2: [-2.4, 1.25, 0.5],
+    3: [-2.4, -1.25, 0.5],
+    4: [2.4, 1.25, 0.5],
+    5: [2.4, -1.25, 0.5],
+    6: [1.25, -2.4, 0.5],
+    7: [-1.25, -2.4, 0.5],
+}  # Tags that are not here are obstacles, not landmarks
 
 
 class NavController:
@@ -45,6 +57,7 @@ class NavController:
         self.tag_size = tag_size
         self.tag_family = tag_family
 
+        # AprilTag detector
         self.at_detector = Detector(
             families=tag_family,
             nthreads=1,
@@ -56,19 +69,21 @@ class NavController:
         )
 
         # Example state variables (students can modify/extend):
-        self.robot_pose = np.array([0.0, 0.0, 0.0])  # [x, y, yaw] in world frame
+        self.robot_pose = np.array([0.0, 0.0, 0.0])  # Estimated robot pose in world frame [x, y, yaw]
+        self.goal = None  # Current goal position in world frame [x, y]
+
         self.pose_covariance = np.eye(3) * 0.1  # Pose uncertainty
         self.landmark_map = {}  # Dict to store landmark positions
         self.last_update_time = 0.0
 
-        # Students can add more state variables as needed
+        # @MRSS25: You can add more state variables as needed for your navigation logic
         pass
 
     def detect_apriltags(self, rgb_image: torch.Tensor, visualize: bool = False) -> dict[int, dict]:
         """
         Detect AprilTags in RGB image and estimate their poses.
 
-        Students can override this method to implement their own detection logic
+        @MRSS25: You can override this method to implement your own detection logic
         or use the raw images for other processing.
 
         Args:
@@ -105,14 +120,9 @@ class NavController:
                 gray, estimate_tag_pose=True, camera_params=self.camera_params, tag_size=self.tag_size
             )
 
-            if len(tags) == 0:
-                if visualize:
-                    self._save_visualization_image(image_np, [], "no_tags")
-                return {}
-
+            # --- Process detected tags
             detected_tags = {}
 
-            # Process detected tags
             for tag in tags:
                 tag_id = tag.tag_id
                 position = tag.pose_t.flatten()  # Translation vector [x, y, z]
@@ -185,7 +195,7 @@ class NavController:
 
             # Save image
             timestamp = int(time.time() * 1000)
-            save_dir = "/tmp/apriltag_detection"
+            save_dir = "apriltag_detection/"
             os.makedirs(save_dir, exist_ok=True)
             filename = f"{save_dir}/{prefix}_{timestamp}.jpg"
 
@@ -202,8 +212,11 @@ class NavController:
         """
         Update internal navigation state based on sensor observations.
 
-        This method is called at regular intervals (10Hz) with the latest observations.
-        Students should implement localization and planning logic here.
+        This method is called from the main loop (sim or real) when new information is available.
+
+        @MRSS25: It's here where you should implement localization and planning logic here.
+
+        For the sim environemnt, frame HxW is 480x640
 
         Args:
             observations: Dictionary containing:
@@ -213,17 +226,20 @@ class NavController:
                 - 'joint_pos': Joint positions (12,) array
                 - 'joint_vel': Joint velocities (12,) array
                 - 'actions': Last action taken (12,) array
-                - 'rgb_image': RGB camera image tensor (H, W, 3) or None
                 - 'goal_position': Goal position in world frame (2,) array [x, y]
-                - 'robot_position': Robot position in world frame (2,) array [x, y]
+                - 'robot_pose': Robot position in world frame (3,) array [x, y, yaw]. This is ONLY to help you debug
+                - 'camera_rgb': RGB camera image tensor (H, W, 3)
+                - 'camera_distance': Distance to camera in meters (H, W, 1)
+                and validate your localization logic. It will not be available on the real robot.
 
         Note:
+            - Not all observations are guaranteed to be present. This can be called with only robot observations
+            or only camera observations.
             - rgb_image may be None if camera is not available
-            - Students should detect AprilTags from rgb_image using self.detect_apriltags()
-            - All other observations are in appropriate coordinate frames (body/world)
         """
+        # 1. Process the observations
         # Get RGB image and detect AprilTags
-        rgb_image = observations.get("rgb_image", None)
+        rgb_image = observations.get("camera_rgb", None)
         detected_tags = {}
 
         if rgb_image is not None:
@@ -231,40 +247,35 @@ class NavController:
             detected_tags = self.detect_apriltags(rgb_image, visualize=False)
 
         # Get other sensor data
-        base_ang_vel = observations.get("base_ang_vel", np.zeros(3))
-        projected_gravity = observations.get("projected_gravity", np.zeros(3))
+        base_ang_vel = observations.get("base_ang_vel", None)
+        projected_gravity = observations.get("projected_gravity", None)
 
         # Get goal and robot positions
-        goal_position = observations.get("goal_position", np.array([0.0, 0.0]))
-        robot_position = observations.get("robot_position", np.array([0.0, 0.0]))
+        goal_position = observations.get("goal_position", None)
 
-        # Students implement localization logic here:
-        # 1. Dead reckoning using IMU/odometry
-        # 2. AprilTag-based localization updates using detected_tags
-        # 3. Sensor fusion (EKF, particle filter, etc.)
-        # 4. Map/landmark management
-        # 5. Path planning to goal_position
+        # Real position, not available on the real robot
+        robot_pose_gt = observations.get("robot_pose", None)
 
-        # Example: Simple goal-seeking behavior
-        goal_distance = np.linalg.norm(goal_position - robot_position)
-
-        # Update internal state
-        self.robot_pose[:2] = robot_position  # Update position estimate
+        if goal_position is not None:
+            self.goal = np.array(goal_position)
 
         # Example: Print detected tags and goal info for debugging
         if detected_tags:
             print(f"[NavController] Detected tags: {list(detected_tags.keys())}")
+            for tag_id, tag_info in detected_tags.items():
+                print(f"\t-{tag_id}: Position {tag_info['pose']['position']}, Distance {tag_info['distance']:.2f}m")
 
-        # print(f"[NavController] Goal distance: {goal_distance:.2f}m")
+        # 2. Localization and planning logic
+        # TODO @MRSS25: Implement localization logic here
+        self.robot_pose = ...
 
-        # TODO: Implement student localization logic
         pass
 
-    def get_velocity_command(self) -> tuple[float, float, float]:
+    def get_command(self) -> tuple[float, float, float]:
         """
         Generate velocity command based on current navigation state.
 
-        Students should implement navigation/path planning logic here using:
+        @MRSS25: You should implement navigation/path planning logic here. Ideas of observations you could use:
         - Current robot pose estimate (self.robot_pose)
         - Goal position (from latest observations)
         - Detected AprilTags for localization
@@ -274,18 +285,12 @@ class NavController:
             Tuple of (lin_vel_x, lin_vel_y, ang_vel_z) in robot body frame.
             All values should be in range [-1, 1] representing normalized velocities.
         """
-        # Students implement navigation command generation here:
-        # 1. Path planning to goal/waypoints
-        # 2. Obstacle avoidance
-        # 3. PID/MPC control for trajectory following
-        # 4. Behavior planning (exploration, goal seeking, etc.)
-
         # Example placeholder - simple forward motion:
         lin_vel_x = 0.0  # Move forward at reduced speed
         lin_vel_y = 0.0  # No lateral motion
         ang_vel_z = 0.0  # No rotation
 
-        # TODO: Implement student navigation logic
+        # TODO MRSS25: Implement navigation logic
 
         # Ensure commands are in valid range
         lin_vel_x = np.clip(lin_vel_x, -1.0, 1.0)
@@ -305,11 +310,13 @@ class NavController:
         self.pose_covariance = np.eye(3) * 0.1
         self.landmark_map.clear()
 
-        # TODO: Implement student reset logic
+        # TODO @MRSS25: Implement reset logic
+
         pass
 
     def get_debug_info(self) -> dict[str, Any]:
         """Get debug information for visualization/logging."""
+
         return {
             "robot_pose": self.robot_pose.tolist(),
             "pose_covariance": self.pose_covariance.tolist(),

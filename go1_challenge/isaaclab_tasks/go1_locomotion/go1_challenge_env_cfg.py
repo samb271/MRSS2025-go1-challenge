@@ -158,7 +158,7 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
                 "robot_cfg": SceneEntityCfg("robot"),
                 "arena_size": 5.0,
                 "wall_buffer": 1.0,
-                "min_robot_dist": 2.0,  # Minimum distance from robot spawn
+                "min_robot_dist": 3.0,  # Minimum distance from robot spawn
                 "max_attempts": 100,
             },
         )
@@ -209,13 +209,12 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
                         SceneEntityCfg("obstacle_3"),
                     ],
                     "avoid_assets_cfg": [
-                        {"asset_cfg": SceneEntityCfg("robot"), "buffer_distance": 2.0},  # Keep 2m from robot
+                        {"asset_cfg": SceneEntityCfg("robot"), "buffer_distance": 1.0},  # Keep 2m from robot
                         {"asset_cfg": SceneEntityCfg("goal"), "buffer_distance": 2.0},  # Keep 2m from goal
                     ],
                     "arena_size": 5.0,
-                    "wall_buffer": 1.0,
-                    "obstacle_buffer": 1.5,  # Distance between obstacles
-                    "safe_zone_size": 2.5,
+                    "wall_buffer": 0.8,
+                    "obstacle_buffer": 1.2,  # Distance between obstacles
                 },
             )
 
@@ -241,9 +240,10 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg_PLAY):
         self.curriculum = None
         self.observations.policy.velocity_commands = ObsTerm(func=constant_commands)
 
-        # Update robot spawn to be in bottom left corner safe zone
-        # self.events.reset_base.params["pose_range"] = {"x": (-1.25, -1.25), "y": (-1.25, -1.25), "yaw": (-3.14, 3.14)}
-        self.events.reset_base.params["pose_range"] = {"x": (0.0, 2.5), "y": (0.0, 2.5), "yaw": (-3.14, 3.14)}
+        # Update robot spawn to be in bottom left corner safe zone.
+        # NOTE: The (0, 0) for this not the center of arena, but the center of the terrain 0.
+        # It corresponds to (-1.25, -1.25) in world coordinates.
+        self.events.reset_base.params["pose_range"] = {"x": (-0.8, 3.3), "y": (-0.8, 3.3), "yaw": (-3.14, 3.14)}
 
         print(f"[INFO] Go1 Challenge Level {self.level} configured:")
         if self.level == 1:
@@ -278,7 +278,6 @@ def randomize_obstacle_positions(
     arena_size,
     wall_buffer,
     obstacle_buffer,
-    safe_zone_size,
 ):
     """Randomly position obstacles in the arena avoiding walls, other obstacles, and specified assets with custom distances."""
 
@@ -288,7 +287,7 @@ def randomize_obstacle_positions(
     min_coord = -arena_size / 2 + wall_buffer
     max_coord = arena_size / 2 - wall_buffer
 
-    # Get positions of assets to avoid with their custom buffer distances
+    # --- Get positions of assets to avoid with their custom buffer distances
     avoid_positions_with_buffers = []
     for avoid_config in avoid_assets_cfg:
         try:
@@ -335,9 +334,9 @@ def randomize_obstacle_positions(
     # Store positions of placed obstacles to avoid overlaps
     placed_obstacle_positions = []
 
-    # Find valid positions for each obstacle
+    # --- Find valid positions for each obstacle
     for obstacle_idx, asset_cfg in enumerate(asset_cfgs):
-        max_attempts = 100
+        max_attempts = 500
         valid_position_found = False
 
         for attempt in range(max_attempts):
@@ -391,7 +390,7 @@ def randomize_obstacle_positions(
                 f"[WARNING] Could not find valid position for {asset_cfg.name} after {max_attempts} attempts. Using fallback at ({x:.2f}, {y:.2f})"
             )
 
-    # Apply positions to obstacle assets
+    # --- Apply positions to obstacle assets
     for i, asset_cfg in enumerate(asset_cfgs):
         x, y = placed_obstacle_positions[i]
         z = 0.0  # Height for all obstacles

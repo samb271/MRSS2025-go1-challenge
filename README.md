@@ -32,7 +32,7 @@ Your system must meet Isaac Sim's [minimum hardware requirements](https://docs.i
 
 Other Linux distributions and Windows may work but are not officially supported.
 
-If your are not able to install the project on your own machine, the MILA will provide access to some computers.
+If you are not able to install the project on your own machine, MILA will provide access to some computers.
 
 ## Installation
 
@@ -147,7 +147,7 @@ Here are some plots you should expect to see in the WandB dashboard:
   <summary>Click to view the WandB Dashboard plot</summary>
 
   <p>
-    <img src="./config/wandb_plots.png" alt="WandB Dashboard" />
+    <img src="./docs/wandb_plots.png" alt="WandB Dashboard" />
   </p>
 </details>
 
@@ -210,7 +210,7 @@ Robot controls:
 - **Arrow keys**: Linear velocity
 - **Z & X**: Yaw rotation
 - **R**: Reset
-- **ESC**: Close simulation
+- **Q**: Close simulation
 
 There are three levels of increasing difficulty:
 - 1: No obstacles, flat ground
@@ -223,7 +223,124 @@ The level can be specified via the `--level` arg.
 
 ## Challenge 3 - Vision-Based Navigation
 
-Coming soon...
+Your doggo is now hungry and wants to reach its food bowl! Your final task is to implement a navigation controller that will guide the robot to its goal autonomously using vision-based localization.
+
+You can start the challenge with:
+```bash
+python scripts/03-go1_arena.py --level 2 --policy logs/rsl_rl/go1_locomotion/2025-08-05_15-16-27_go1_locomotion/exported/policy.pt
+```
+(same as before, but without the `--teleop` flag).
+
+The levels are the same as for the previous challenge:
+- **Level 1**: No obstacles, flat ground
+- **Level 2**: Obstacles, flat ground  
+- **Level 3**: Obstacles, rough ground
+
+### The Navigation Controller
+
+The navigation system is implemented in [`go1_challenge/navigation/nav_controller.py`](go1_challenge/navigation/nav_controller.py). This class handles:
+- AprilTag detection and pose estimation from camera images
+- Robot localization using visual landmarks
+- Path planning and obstacle avoidance
+- Velocity command generation
+
+#### Key Functions to Implement
+
+You need to implement the following core methods marked with `@MRSS25`:
+
+##### 1. `update(self, observations: dict) -> None`
+**Purpose**: Update the robot's internal state based on sensor observations.
+
+**Available observations**:
+- `camera_rgb`: RGB camera image (H×W×3) - your primary sensor for localization
+- `camera_distance`: Distance to camera in meters (HxWx1)
+- `base_ang_vel`: Robot angular velocity [roll_rate, pitch_rate, yaw_rate]
+- `projected_gravity`: Gravity vector in body frame (for orientation estimation)
+- `velocity_commands`: Current velocity commands (3,) array [vx, vy, wz]
+- `joint_pos`: Joint positions (12,) array
+- `joint_vel`: Joint velocities (12,) array
+- `actions`: Last action taken (12,) array
+- `goal_position`: Target position in world coordinates [x, y]
+- `robot_pose`: Ground truth pose [x, y, yaw] (debug only - not available on real robot)
+
+
+##### 2. `get_command(self) -> tuple[float, float, float]`
+**Purpose**: Generate velocity commands to drive the robot toward the goal.
+
+**Returns**: Tuple of `(lin_vel_x, lin_vel_y, ang_vel_z)` in range [-1, 1]
+
+
+##### 3. `reset(self) -> None`
+**Purpose**: Reset the controller state when the environment resets.
+
+#### AprilTag System
+
+The arena contains AprilTags for localization:
+- **Known position tags**: Placed at fixed locations around the arena perimeter and near the goal
+- **Obstacle tags**: Placed on movable obstacles (unknown positions)
+
+The `detect_apriltags()` method is already implemented and returns:
+```python
+{
+    tag_id: {
+        "pose": {
+            "position": [x, y, z],  # Position in camera frame
+            "rotation_matrix": [[...]]  # 3x3 rotation matrix
+        },
+        "distance": float,
+        "confidence": float
+    }
+}
+```
+
+How you use the landmarks positions is up to you!
+
+#### Implementation Tips
+
+1. **Localization Strategy**:
+   - Use known AprilTags as landmarks for SLAM or Monte Carlo localization
+   - Combine visual odometry with tag observations
+   - Consider implementing a particle filter or Extended Kalman Filter
+
+2. **Navigation Strategy**:
+   - Implement reactive navigation (potential fields, bug algorithms)
+   - Or use planning-based approaches (A*, RRT)
+   - Use obstacle tags for dynamic obstacle avoidance
+   - Could RL be applied here?
+
+3. **Camera Calibration**:
+   - Camera intrinsics are provided: `(fx, fy, cx, cy)`
+   - Tag size is 0.16m (side length of black square)
+   - The parameters for the real camera will be different. We are going to provide them later
+
+4. **Debugging**:
+   - Use `visualize=True` in `detect_apriltags()` to save detection images
+   - Print debug information in the `update()` method
+   - Use ground truth pose (available in simulation) to validate your estimates
+
+> [!TIP] 
+> Trying to use the same policy for all the robots? Your `NavController.get_command` should then output the joint positions (12 dim) as actions instead of the target velocities. 
+> You'll have to modify `03-go1_arena.py` to send those directly to the `env`. Feel free to ask if you are not sure where to start. 
+
+#### Deployment to Real Robot
+When you are ready to test your policy, send your `nav_controller.py` to your robot supervisor. They'll run the script on the MILA laptop.
+
+> [!NOTE]
+> Because the script will run in another conda environment, ask the organizers before installing more Python packages.
+
+![go1_nav_architecture](docs/go1_nav_architecture.png)
+
+
+#### Evaluation Criteria
+
+Your navigation controller will be evaluated on:
+- **Accuracy**: How close does the robot get to the goal?
+- **Efficiency**: How quickly does it reach the goal?
+- **Robustness**: Does it handle obstacles and localization failures gracefully?
+
+Important comments in the code are tagged with `@MRSS25` to help you identify what needs to be implemented.
+
+Good luck with your autonomous navigation system!
 
 ## Code Overview
 
