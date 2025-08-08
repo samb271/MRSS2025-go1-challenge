@@ -271,7 +271,7 @@ class NavController:
 
         pass
 
-    def get_command(self) -> tuple[float, float, float]:
+    def get_command(self) -> np.ndarray:
         """
         Generate velocity command based on current navigation state.
 
@@ -282,7 +282,7 @@ class NavController:
         - Obstacle avoidance logic
 
         Returns:
-            Tuple of (lin_vel_x, lin_vel_y, ang_vel_z) in robot body frame.
+            Array (3, ) with the structure  [lin_vel_x, lin_vel_y, ang_vel_z] in robot body frame.
             All values should be in range [-1, 1] representing normalized velocities.
         """
         # Example placeholder - simple forward motion:
@@ -297,7 +297,9 @@ class NavController:
         lin_vel_y = np.clip(lin_vel_y, -1.0, 1.0)
         ang_vel_z = np.clip(ang_vel_z, -1.0, 1.0)
 
-        return lin_vel_x, lin_vel_y, ang_vel_z
+        command = np.array([lin_vel_x, lin_vel_y, ang_vel_z], dtype=np.float32)
+
+        return command
 
     def reset(self) -> None:
         """
