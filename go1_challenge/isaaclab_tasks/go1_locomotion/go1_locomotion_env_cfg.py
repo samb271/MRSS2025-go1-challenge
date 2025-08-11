@@ -118,8 +118,8 @@ class LocoSceneCfg(InteractiveSceneCfg):
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/trunk",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        # ray_alignment='yaw',  #TODO: Doesn't work on my end
-        attach_yaw_only=True,
+        ray_alignment="yaw",
+        # attach_yaw_only=True,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
