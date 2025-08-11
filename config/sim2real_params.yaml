@@ -5,14 +5,8 @@ max_iterations: 1000  # Adjust this to train for longer: 1.5k should give you a 
 
 seed: 42 # Performance should be somewhat consistent across seeds
 
-video: false  # Record videos during training.
-video_length: 10  # Length of the recorded video (in steps).
-video_interval: 10  # Interval between video recordings (in steps).
-
 run_name: sim2real_tuto  # Run name suffix to the log directory.
 resume: false  # Whether to resume from a checkpoint.
-#load_run: LOAD_RUN   # Name of the run folder to resume from.
-#checkpoint: CHECKPOINT  # Checkpoint file to resume from.
 logger: wandb  # Logger module to use. {neptune, wandb, tensorboard}
 log_project_name: MRSS25  # Name of the logging project when using wandb or neptune.
 
@@ -21,13 +15,8 @@ env:
     num_envs: 4096  # Number of environments to generate terrain for and run in parallel.
 
     terrain:
-      max_init_terrain_level: 5  # Maximum initial difficulty level of terrains for curriculum learning
 
       terrain_generator: 
-        # Each column is assigned a random terrain type from the sub_terrains.
-        num_cols: 20  # Number of terrain columns (patches) in the scene. Default is 20.
-        num_rows: 10  # Number of terrain rows (patches) in the scene. Default is 10.
-        
         # The difficulty linearly increases along the rows if curriculum is enabled.
         curriculum: True  # Enable terrain difficulty progression over time
         
@@ -54,18 +43,15 @@ env:
 
           pyramid_slope_inv: 
             proportion: 0.0
-        
-      # terrain_generator: 
-      #   sub_terrains: 'null'
-      #   border_height: 1.0  # Height of border around the terrain patch
-      #   border_width: 20.0  # Width of border around the terrain patch
-      #   difficulty_range: [ 0.0, 1.0 ]  # Range of terrain difficulties to sample from
-      #   horizontal_scale: 0.1  # Horizontal scaling factor for terrain features
-      #   size: [ 8.0, 8.0 ]  # Size of each terrain patch (meters)
-      #   slope_threshold: 0.75  # Max slope allowed for terrain generation
-      #   use_cache: False  # Use cached terrains or regenerate every time
-      #   vertical_scale: 0.005  # Vertical scaling factor for heightmap features
-    
+
+
+  events:
+    add_base_mass:
+      params:
+        mass_distribution_params: [ -1.0, 3.0 ]  # Range for randomizing the base mass
+
+    push_robot:  'null' # Event to push the robot, set to 'null'  to disable
+
   rewards:
     action_rate_l2:
       weight: -0.1  # Penalty for rapid changes in actions (encourages smoothness)
@@ -87,22 +73,6 @@ env:
       weight: 0.75  # Reward for matching desired angular velocity around z-axis (yaw control)
     track_lin_vel_xy_exp:
       weight: 1.5  # Reward for matching desired linear velocity in x-y plane
-
-  events:
-    add_base_mass:
-      params:
-        mass_distribution_params: [ -5.0, 5.0 ]  # Range for randomizing the base mass
-
-    # push_robot:  # Event to push the robot, set to 'null'  to disable
-    #   interval_range_s: [10.0, 10.0]
-    #   params:
-    #     velocity_range:
-    #       x: [-0.0, 0.0] 
-    #       y: [-0.0, 0.0]
-
-    push_robot:  'null' # Event to push the robot, set to 'null'  to disable
-
-    
 
 algorithm:
   class_name: 'PPO'  # Name of the RL algorithm to use (Proximal Policy Optimization)

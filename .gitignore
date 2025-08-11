@@ -6,7 +6,8 @@ wandb
 # Logs
 logs/
 outputs/
-policies/
+policies/*
+!policies/sim2real_tutorial/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

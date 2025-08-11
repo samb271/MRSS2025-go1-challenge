@@ -1,49 +1,19 @@
 """
-Definition of the Go1 Challenge environment configuration for IsaacSim. This environment is designed to test the Go1
-locomotion policy in the arena with obstacles and ArUco tags.
+Definition of the Go1 Sim2Real environment configuration for IsaacSim. This environment is designed to be used
+during the sim2real tutorial.
 """
 
-from pathlib import Path
-import torch
-import os
-import numpy as np
-
-
-import isaaclab.sim as sim_utils
-from isaaclab.assets import Articulation, ArticulationCfg, AssetBaseCfg, RigidObjectCfg
-
-from isaaclab.envs import ManagerBasedEnv, ManagerBasedEnvCfg, ManagerBasedRLEnv
 import isaaclab.envs.mdp as mdp
-from isaaclab.managers import EventTermCfg as EventTerm
-from isaaclab.managers import ObservationGroupCfg as ObsGroup
-from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import SceneEntityCfg
-
-from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
-from isaaclab.terrains import TerrainImporterCfg, TerrainGeneratorCfg
+from isaaclab.terrains import TerrainGeneratorCfg
 import isaaclab.terrains as terrain_gen
 
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, check_file_path, read_file
-from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-from isaaclab.sensors import CameraCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
-
-from pxr import UsdGeom, Gf, UsdPhysics, Sdf
-import omni.usd
-
-from isaacsim.core.prims import XFormPrim
 
 ##
 # Pre-defined configs
 ##
 from go1_challenge.isaaclab_tasks.go1_locomotion.go1_locomotion_env_cfg import Go1LocomotionEnvCfg
-
-##
-# Scene
-##
-# import go1_challenge.arena_assets
 
 SIM2REAL_TERRAIN = TerrainGeneratorCfg(
     seed=42,
@@ -88,18 +58,20 @@ SIM2REAL_TERRAIN = TerrainGeneratorCfg(
         "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.33),
     },
 )
-"""Sim2Real terrain flat, boxes and rough terrain"""
+"""Sim2Real terrain: flat, boxes and rough"""
 
 
 @configclass
 class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg):
-    """Design the scene with Go1 robot and camera."""
-
     def __post_init__(self):
         """Post initialization to add dynamically generated components."""
         super().__post_init__()
 
         self.seed = 42  # Set a fixed seed for reproducibility
+
+        # Set camera view
+        self.viewer.eye = (2.0, 0.0, 5.0)
+        self.viewer.lookat = (-3.0, 0.0, 0.0)
 
         # make a smaller scene for play
         self.scene.num_envs = 3
@@ -119,5 +91,5 @@ class Go1ChallengeSceneCfg(Go1LocomotionEnvCfg):
         self.events.push_robot.interval_range_s = [3.0, 3.0]  # Push every 5 seconds
         self.events.push_robot.params["velocity_range"] = {"x": (-0.0, -0.0), "y": (0.0, 0.0)}
 
-        added_mass = 0.0
+        added_mass = 3.0
         self.events.add_base_mass.params["mass_distribution_params"] = (added_mass, added_mass)
