@@ -1,15 +1,15 @@
 task: MRSS-Velocity-Go1-v0  # Name of the task.
 
 headless: true  # Run simulation without rendering a GUI (faster, better for training on servers)
-max_iterations: 500  # Adjust this to train for longer: 1.5k should give you a working policy for rough terrain
+max_iterations: 1000  # Adjust this to train for longer: 1.5k should give you a working policy for rough terrain
 
-seed: 1 # Performance should be somewhat consistent across seeds
+seed: 42 # Performance should be somewhat consistent across seeds
 
 video: false  # Record videos during training.
 video_length: 10  # Length of the recorded video (in steps).
 video_interval: 10  # Interval between video recordings (in steps).
 
-run_name: go1_locomotion  # Run name suffix to the log directory.
+run_name: sim2real_tuto  # Run name suffix to the log directory.
 resume: false  # Whether to resume from a checkpoint.
 #load_run: LOAD_RUN   # Name of the run folder to resume from.
 #checkpoint: CHECKPOINT  # Checkpoint file to resume from.
@@ -91,15 +91,18 @@ env:
   events:
     add_base_mass:
       params:
-        mass_distribution_params: [ -1.0, 3.0 ]  # Range for randomizing the base mass
+        mass_distribution_params: [ -5.0, 5.0 ]  # Range for randomizing the base mass
 
-    base_external_force_torque:
-      params:
-        force_range: [ 0.0, 0.0 ]  # Range for randomizing the external force applied to the base
-        torque_range: [ 0.0, 0.0 ]  # Range for randomizing the external torque applied to the base
+    # push_robot:  # Event to push the robot, set to 'null'  to disable
+    #   interval_range_s: [10.0, 10.0]
+    #   params:
+    #     velocity_range:
+    #       x: [-0.0, 0.0] 
+    #       y: [-0.0, 0.0]
 
-    push_robot: 'null'  # Event to push the robot, set to None to disable
+    push_robot:  'null' # Event to push the robot, set to 'null'  to disable
 
+    
 
 algorithm:
   class_name: 'PPO'  # Name of the RL algorithm to use (Proximal Policy Optimization)
