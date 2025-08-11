@@ -97,7 +97,7 @@ Install the Go1 Challenge repository:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/modanesh/MRSS2025-go1-challenge.git
+   git clone https://github.com/csirois14/MRSS2025-go1-challenge.git
    ```
 
 2. Install as a Python package:
