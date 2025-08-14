@@ -11,8 +11,11 @@ import cv2
 import time
 import os
 from typing import Any
+import jax
 
 from pyapriltags import Detector
+
+from crossformer.model.crossformer_model import CrossFormerModel
 
 # Position of the tags in the arena
 TAG_POSITIONS = {
@@ -77,7 +80,9 @@ class NavController:
         self.last_update_time = 0.0
 
         # @MRSS25: You can add more state variables as needed for your navigation logic
-        pass
+        self.crossformer = CrossFormerModel.load_pretrained("hf://rail-berkeley/crossformer")
+        
+        self.current_obs = None
 
     def detect_apriltags(self, rgb_image: torch.Tensor, visualize: bool = False) -> dict[int, dict]:
         """
@@ -240,6 +245,7 @@ class NavController:
         # 1. Process the observations
         # Get RGB image and detect AprilTags
         rgb_image = observations.get("camera_rgb", None)
+        self.current_obs = rgb_image
         detected_tags = {}
 
         if rgb_image is not None:
@@ -291,6 +297,11 @@ class NavController:
         ang_vel_z = 0.0  # No rotation
 
         # TODO MRSS25: Implement navigation logic
+        
+        task = self.crossformer.create_tasks(texts=["go to the red bowl"])
+        action = self.crossformer.sample_actions(self.current_obs, task, head_name="quadruped")
+        
+        print(action)
 
         # Ensure commands are in valid range
         lin_vel_x = np.clip(lin_vel_x, -1.0, 1.0)

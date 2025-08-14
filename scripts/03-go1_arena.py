@@ -222,11 +222,13 @@ def main():
     # --- Setup keyboard interface
     sensitivity_lin = 1.0
     sensitivity_ang = 1.0
-
-    teleop_cfg = Se2KeyboardCfg(
-        v_x_sensitivity=sensitivity_lin, v_y_sensitivity=sensitivity_lin, omega_z_sensitivity=sensitivity_ang
+    cfg = Se2KeyboardCfg(
+        v_x_sensitivity=sensitivity_lin,
+        v_y_sensitivity=sensitivity_lin,
+        omega_z_sensitivity=sensitivity_ang
     )
-    teleop_interface = Se2Keyboard(teleop_cfg)
+
+    teleop_interface = Se2Keyboard(cfg)
 
     teleop_interface.add_callback("R", env.reset)
     teleop_interface.add_callback("Q", quit_cb)

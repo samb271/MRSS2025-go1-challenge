@@ -1,7 +1,7 @@
 task: MRSS-Velocity-Go1-v0  # Name of the task.
 
 headless: true  # Run simulation without rendering a GUI (faster, better for training on servers)
-max_iterations: 500  # Adjust this to train for longer: 1.5k should give you a working policy for rough terrain
+max_iterations: 5000  # Adjust this to train for longer: 1.5k should give you a working policy for rough terrain
 
 seed: 1 # Performance should be somewhat consistent across seeds
 
@@ -18,15 +18,15 @@ log_project_name: MRSS25  # Name of the logging project when using wandb or nept
 
 env:
   scene:
-    num_envs: 1  # Number of environments to generate terrain for and run in parallel.
+    num_envs: 8192  # Number of environments to generate terrain for and run in parallel.
 
     terrain:
-      max_init_terrain_level: 5  # Maximum initial difficulty level of terrains for curriculum learning
+      max_init_terrain_level: 10  # Maximum initial difficulty level of terrains for curriculum learning
 
       terrain_generator: 
         # Each column is assigned a random terrain type from the sub_terrains.
-        num_cols: 20  # Number of terrain columns (patches) in the scene. Default is 20.
-        num_rows: 10  # Number of terrain rows (patches) in the scene. Default is 10.
+        num_cols: 30  # Number of terrain columns (patches) in the scene. Default is 20.
+        num_rows: 20  # Number of terrain rows (patches) in the scene. Default is 10.
         
         # The difficulty linearly increases along the rows if curriculum is enabled.
         curriculum: True  # Enable terrain difficulty progression over time
@@ -35,25 +35,25 @@ env:
         # See the different possible terrains here https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.terrains.html#terrain-generator
         sub_terrains:
           flat: 
-            proportion: 1.0
+            proportion: 0.1
 
           pyramid_stairs:
-            proportion: 0.0
+            proportion: 0.18
 
           pyramid_stairs_inv:
-            proportion: 0.0
+            proportion: 0.18
 
           boxes:
-            proportion: 0.0
+            proportion: 0.18
 
           random_rough: 
-            proportion: 0.0
+            proportion: 0.18
 
           pyramid_slope: 
-            proportion: 0.0
+            proportion: 0.18
 
           pyramid_slope_inv: 
-            proportion: 0.0
+            proportion: 0.
         
       # terrain_generator: 
       #   sub_terrains: 'null'
@@ -67,26 +67,46 @@ env:
       #   vertical_scale: 0.005  # Vertical scaling factor for heightmap features
     
   rewards:
+    # Smooth control changes
     action_rate_l2:
-      weight: -0.1  # Penalty for rapid changes in actions (encourages smoothness)
+      weight: -0.05      # Enough to smooth actions, still responsive
+    
+    # Stability (reduce wobble & roll)
     ang_vel_xy_l2:
-      weight: -0.05  # Penalty for angular velocity in x and y directions (helps stability)
+      weight: -0.1
+    
+    # Smooth motion at joint level
     dof_acc_l2:
-      weight: -2.5e-07  # Penalty for joint accelerations (encourages smoother motion)
+      weight: -5e-06     # Big enough to matter; tune later
+    
+    # Prevent hyperextension
     dof_pos_limits:
-      weight: 0.0  # Penalty for exceeding joint limits (disabled here)
+      weight: -0.05
+    
+    # Energy efficiency without crippling agility
     dof_torques_l2:
-      weight: -0.0002  # Penalty for large joint torques (encourages energy efficiency)
+      weight: -0.0005
+    
+    # Encourage stepping without promoting hopping
     feet_air_time:
-      weight: 0.01  # Reward for time feet spend in the air (encourages stepping/gait)
+      weight: 0.3
+    
+    # Keep torso roughly level
     flat_orientation_l2:
-      weight: 0.0  # Penalty for orientation deviation from flat (disabled here)
+      weight: -0.4
+    
+    # Suppress vertical bouncing
     lin_vel_z_l2:
-      weight: -2.0  # Penalty for vertical (z-axis) linear velocity (encourages flat motion)
+      weight: -1.0
+    
+    # Angular velocity tracking (turning control)
     track_ang_vel_z_exp:
-      weight: 0.75  # Reward for matching desired angular velocity around z-axis (yaw control)
+      weight: 0.65
+    
+    # Main driver: forward velocity tracking
     track_lin_vel_xy_exp:
-      weight: 1.5  # Reward for matching desired linear velocity in x-y plane
+      weight: 2.0
+
 
   events:
     add_base_mass:
@@ -95,10 +115,16 @@ env:
 
     base_external_force_torque:
       params:
-        force_range: [ 0.0, 0.0 ]  # Range for randomizing the external force applied to the base
-        torque_range: [ 0.0, 0.0 ]  # Range for randomizing the external torque applied to the base
+        force_range: [ 0.0, 15.0 ]  # Range for randomizing the external force applied to the base
+        torque_range: [ 0.0, 2.0 ]  # Range for randomizing the external torque applied to the base
 
-    push_robot: 'null'  # Event to push the robot, set to None to disable
+    push_robot:
+      mode: "interval"
+      interval_range_s: [10.0, 15.0]     # Push every 10–15 seconds
+      params:
+        velocity_range:
+          x: [-0.5, 0.5]                 # Push in m/s along x-axis
+          y: [-0.5, 0.5]                 # Push in m/s along y-axis
 
 
 algorithm:
@@ -108,11 +134,11 @@ algorithm:
   entropy_coef: 0.01  # Coefficient for entropy bonus (encourages exploration)
   gamma: 0.99  # Discount factor for future rewards
   lam: 0.95  # GAE lambda parameter for bias-variance tradeoff
-  learning_rate: 0.001  # Initial learning rate for optimizer
+  learning_rate: 0.0005  # Initial learning rate for optimizer
   max_grad_norm: 1.0  # Maximum gradient norm for clipping
-  normalize_advantage_per_mini_batch: False  # Whether to normalize advantages per mini-batch
+  normalize_advantage_per_mini_batch: True  # Whether to normalize advantages per mini-batch
   num_learning_epochs: 5  # Number of passes over data per training iteration
-  num_mini_batches: 4  # Number of mini-batches per epoch
+  num_mini_batches: 128  # Number of mini-batches per epoch
   rnd_cfg: null  # Configuration for Random Network Distillation (not used here)
   schedule: 'adaptive'  # Learning rate schedule type (adaptive vs fixed)
   symmetry_cfg: null  # Optional symmetry loss configuration (not used here)
