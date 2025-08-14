@@ -72,7 +72,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.utils.assets import read_file
 from isaacsim.core.utils.viewports import set_camera_view
-from isaaclab.devices import Se2Keyboard
+from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
 
 from go1_challenge.navigation import NavController
 
@@ -222,9 +222,11 @@ def main():
     # --- Setup keyboard interface
     sensitivity_lin = 1.0
     sensitivity_ang = 1.0
-    teleop_interface = Se2Keyboard(
+
+    teleop_cfg = Se2KeyboardCfg(
         v_x_sensitivity=sensitivity_lin, v_y_sensitivity=sensitivity_lin, omega_z_sensitivity=sensitivity_ang
     )
+    teleop_interface = Se2Keyboard(teleop_cfg)
 
     teleop_interface.add_callback("R", env.reset)
     teleop_interface.add_callback("Q", quit_cb)
