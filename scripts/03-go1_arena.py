@@ -327,12 +327,17 @@ def main():
                 command = last_nav_command
 
             # Update policy observation with velocity command
-            obs["policy"][:, 6:9] = torch.tensor(command)
+            # obs["policy"][:, 6:9] = torch.tensor(command)
+            # print(obs["policy"].shape)
 
-            # Policy inference
-            action = policy(obs["policy"])
+            # # Policy inference
+            # action = policy(obs["policy"])
+            
+            # print(action.shape)
 
             # Step environment
+            action = torch.tensor(np.array(command[0]))
+            print(action)
             obs, _, _, _, _ = env.step(action)
 
             count += 1

@@ -5,6 +5,7 @@ This class handles robot localization and navigation command generation.
 @MRSS25: You have to implement the core methods to complete the navigation system.
 """
 
+
 import numpy as np
 import torch
 import cv2
@@ -12,6 +13,7 @@ import time
 import os
 from typing import Any
 import jax
+import cv2
 
 from pyapriltags import Detector
 
@@ -28,7 +30,6 @@ TAG_POSITIONS = {
     6: [1.25, -2.4, 0.5],
     7: [-1.25, -2.4, 0.5],
 }  # Tags that are not here are obstacles, not landmarks
-
 
 class NavController:
     """
@@ -245,6 +246,10 @@ class NavController:
         # 1. Process the observations
         # Get RGB image and detect AprilTags
         rgb_image = observations.get("camera_rgb", None)
+        depth = observations.get("camera_distance", None)  # (H,W,1) in meters
+        if depth is not None and depth.ndim == 3 and depth.shape[2] == 1:
+            depth = depth[..., 0]  # (H,W)
+
         self.current_obs = rgb_image
         detected_tags = {}
 
@@ -295,22 +300,30 @@ class NavController:
         lin_vel_x = 0.0  # Move forward at reduced speed
         lin_vel_y = 0.0  # No lateral motion
         ang_vel_z = 0.0  # No rotation
+        
+        obs = self.current_obs
+        obs = cv2.resize(obs, (224, 224))  # shape becomes (224, 224, 3)
+        # Convert from HWC to CHW format and add batch dimensions
+        obs = obs[np.newaxis, np.newaxis, ...]  # (1, 1, 224, 224, 3)
 
         # TODO MRSS25: Implement navigation logic
-        
+        observation = {
+            "image_primary": obs,
+            "timestep_pad_mask": np.full((1, obs.shape[1]), True, dtype=bool),
+        }
         task = self.crossformer.create_tasks(texts=["go to the red bowl"])
-        action = self.crossformer.sample_actions(self.current_obs, task, head_name="quadruped")
+        action = self.crossformer.sample_actions(observation, task, head_name="quadruped", rng=1)
         
-        print(action)
+        return action
 
-        # Ensure commands are in valid range
-        lin_vel_x = np.clip(lin_vel_x, -1.0, 1.0)
-        lin_vel_y = np.clip(lin_vel_y, -1.0, 1.0)
-        ang_vel_z = np.clip(ang_vel_z, -1.0, 1.0)
+        # # Ensure commands are in valid range
+        # lin_vel_x = np.clip(lin_vel_x, -1.0, 1.0)
+        # lin_vel_y = np.clip(lin_vel_y, -1.0, 1.0)
+        # ang_vel_z = np.clip(ang_vel_z, -1.0, 1.0)
 
-        command = np.array([lin_vel_x, lin_vel_y, ang_vel_z], dtype=np.float32)
+        # command = np.array([lin_vel_x, lin_vel_y, ang_vel_z], dtype=np.float32)
 
-        return command
+        # return command
 
     def reset(self) -> None:
         """
